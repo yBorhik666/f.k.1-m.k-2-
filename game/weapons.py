@@ -10,17 +10,17 @@ weapons = [
     },
     {
         "name": "Shotgun",
-        "damage": 2,
+        "damage": 15,
         "fire_rate": 40,
         "speed": 10,
-        "texture": "image/pistol.png"
+        "texture": "image/tezer.png"
     },
     {
         "name": "Rifle",
-        "damage": 1,
+        "damage": 1.95,
         "fire_rate": 5,
         "speed": 18,
-        "texture": "image/pistol.png"
+        "texture": "image/mini_gun.png"
     }
 ]
 

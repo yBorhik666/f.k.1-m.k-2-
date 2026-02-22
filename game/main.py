@@ -5,7 +5,7 @@ import sys
 import json
 import os
 from weapons import weapons, load_weapon_textures
-
+from level import levels
 pygame.init()
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 SAVE_FILE = os.path.join(BASE_DIR, "save.json")
@@ -41,7 +41,7 @@ spawn_timer = 0
 
 wall_tex = pygame.image.load("image/wall.png").convert()
 enemy_sprite = pygame.image.load("image/eNemi.png").convert_alpha()
-gun_tex = pygame.image.load("image/pistol.png").convert_alpha()
+gun_tex = load_weapon_textures()
 bullet_tex = pygame.image.load("image/Cacodemon.png").convert_alpha()
 
 TEX_SIZE = wall_tex.get_width()
@@ -54,53 +54,20 @@ def load_level():
 
     enemies.clear()
 
-    if LEVEL == 1:
-        world_map = [
-            "111111111111",
-            "1000000000E1",
-            "100000000001",
-            "100000000001",
-            "111111111111",
-        ]
-    elif LEVEL == 2:
-        world_map = [
-            "111111111111111111",
-            "1000010000000000E1",
-            "100000000000000001",
-            "100000000000000001",
-            "100000000000000001",
-            "100000000000000001",
-            "100000000000000001",
-            "111111111111111111",
-        ]
-    elif LEVEL == 3:
-        world_map = [
-            "111111111111",
-            "1000000000E1",
-            "100000000001",
-            "101111111101",
-            "100000000001",
-            "111111111111",
-        ]
-    elif LEVEL == 4:
-        world_map = [
-            "111111111111",
-            "100100100001",
-            "100000000001",
-            "100000000001",
-            "101101101101",
-            "1000000000E1",
-            "111111111111",
-        ]
-    elif LEVEL == 5:
-        world_map = [
-            "111111111111",
-            "1010101010E1",
-            "100000000001",
-            "100000000001",
-            "101010101001",
-            "111111111111",
-        ]
+    if LEVEL in levels:
+        level_data = levels[LEVEL]
+        world_map = level_data["map"]
+        MAX_ENEMIES = level_data["max_enemies"]
+        SPAWN_DELAY = level_data["spawn_delay"]
+    else:
+        # Якщо рівень не знайдено, використовуємо рівень 1
+        level_data = levels[1]
+        world_map = level_data["map"]
+        MAX_ENEMIES = level_data["max_enemies"]
+        SPAWN_DELAY = level_data["spawn_delay"]
+
+    px = 150
+    py = 150
 
     MAX_ENEMIES = LEVEL * 5
     SPAWN_DELAY = max(60, 180 - LEVEL * 20)
@@ -126,7 +93,7 @@ def spawn_enemy():
             y = my * TILE + TILE // 2
 
             if math.hypot(x - px, y - py) > 200:
-                enemies.append({"x": x, "y": y, "alive": True})
+                enemies.append({"x": x, "y": y, "alive": True, "hp": 10})
                 break
 
 
@@ -295,6 +262,10 @@ while running:
             running=False
         if event.type == pygame.MOUSEBUTTONDOWN:
             shoot()
+        if event.type == pygame.MOUSEWHEEL:
+            current_weapon_index += event.y
+            current_weapon_index %= len(weapons)
+            current_weapon = weapons[current_weapon_index]
 
     mx,_ = pygame.mouse.get_rel()
     angle += mx*mouse_sens
@@ -325,10 +296,7 @@ while running:
         if not is_wall(nx,ny):
             px,py = nx,ny
 
-    if event.type == pygame.MOUSEWHEEL:
-        current_weapon_index += event.y
-        current_weapon_index %= len(weapons)
-        current_weapon = weapons[current_weapon_index]
+
 
     spawn_timer += 1
     if spawn_timer >= SPAWN_DELAY and len(enemies) < MAX_ENEMIES:
@@ -343,8 +311,8 @@ while running:
     if keys[pygame.K_TAB]:
         draw_minimap()
 
-    gun = pygame.transform.scale(gun_tex,(300,160))
-    screen.blit(gun,(WIDTH//2-150,HEIGHT-200))
+    gun = pygame.transform.scale(current_weapon["image"], (300, 160))
+    screen.blit(gun, (WIDTH // 2 - 150, HEIGHT - 200))
 
     check_level_exit()
 
