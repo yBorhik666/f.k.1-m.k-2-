@@ -347,10 +347,12 @@ while running:
             gun_frame = 0
 
     if gun_animating:
-        gun_frame += gun_anim_speed
-        if gun_frame >= len(current_weapon["frames"]):
-            gun_animating = False
-            gun_frame = 00
+        frame_image = current_weapon["frames"][int(gun_frame)]
+    else:
+        frame_image = current_weapon["frames"][0]
+
+    gun = pygame.transform.scale(frame_image, (300, 160))
+    screen.blit(gun, (WIDTH // 2 - 150, HEIGHT - 200))
 
     if gun_animating:
         frame_image = current_weapon["frames"][int(gun_frame)]
