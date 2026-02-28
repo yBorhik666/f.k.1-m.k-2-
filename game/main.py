@@ -16,7 +16,7 @@ if len(sys.argv) > 1:
 
 WIDTH, HEIGHT = 1360, 800
 screen = pygame.display.set_mode((WIDTH, HEIGHT))
-pygame.display.set_caption("Pygame FPS")
+pygame.display.set_caption("DOOM THE KILL FYRRE")
 clock = pygame.time.Clock()
 
 pygame.mouse.set_visible(False)
@@ -33,7 +33,8 @@ fov = math.pi / 3
 NUM_RAYS = 300
 MAX_DEPTH = 800
 DELTA_ANGLE = fov / NUM_RAYS
-SCALE = WIDTH // NUM_RAYS
+SCALE = WIDTH / NUM_RAYS
+HALF_HEIGHT = HEIGHT // 2
 
 bullets = []
 enemies = []
@@ -42,13 +43,15 @@ spawn_timer = 0
 wall_tex = pygame.image.load("image/wall.png").convert()
 enemy_sprite = pygame.image.load("image/eNemi.png").convert_alpha()
 gun_tex = load_weapon_textures()
-bullet_tex = pygame.image.load("image/Cacodemon.png").convert_alpha()
+bullet_tex = pygame.image.load("image/bullets_0.png").convert_alpha()
 
 TEX_SIZE = wall_tex.get_width()
 load_weapon_textures()
 current_weapon_index = 0
 current_weapon = weapons[current_weapon_index]
-
+gun_frame = 0
+gun_animating = False
+gun_anim_speed = 0.2
 def load_level():
     global world_map, MAX_ENEMIES, SPAWN_DELAY, enemies, px, py
 
@@ -100,33 +103,50 @@ def spawn_enemy():
 def cast_walls():
     ray_angle = angle - fov / 2
     depths = []
+    x_pos = 0
 
     for ray in range(NUM_RAYS):
+
         sin_a = math.sin(ray_angle)
         cos_a = math.cos(ray_angle)
 
-        for depth in range(1, MAX_DEPTH):
+        depth = 1
+        hit = False
+
+        while depth < MAX_DEPTH:
             x = px + depth * cos_a
             y = py + depth * sin_a
+
             mx, my = int(x // TILE), int(y // TILE)
 
             if 0 <= my < len(world_map) and 0 <= mx < len(world_map[0]):
                 if world_map[my][mx] == "1":
-                    depth *= math.cos(angle - ray_angle)
-                    proj_h = 21000 / (depth + 0.0001)
-
-                    hit_x = int(x) % TILE
-                    tex_x = int(hit_x * TEX_SIZE / TILE)
-
-                    column = wall_tex.subsurface(tex_x, 0, 1, TEX_SIZE)
-                    column = pygame.transform.scale(column, (SCALE, int(proj_h)))
-                    screen.blit(column, (ray * SCALE, HEIGHT//2 - proj_h//2))
-                    depths.append(depth)
+                    hit = True
                     break
             else:
-                depths.append(MAX_DEPTH)
                 break
 
+            depth += 4   # 🚀 шаг луча (оптимизация)
+
+        if hit:
+            depth *= math.cos(angle - ray_angle)
+            proj_h = 21000 / (depth + 0.0001)
+
+            hit_x = int(x) % TILE
+            tex_x = int(hit_x * TEX_SIZE / TILE)
+
+            column = wall_tex.subsurface(tex_x, 0, 1, TEX_SIZE)
+            column = pygame.transform.scale(
+                column,
+                (int(SCALE) + 1, int(proj_h))
+            )
+
+            screen.blit(column, (int(x_pos), HALF_HEIGHT - proj_h // 2))
+            depths.append(depth)
+        else:
+            depths.append(MAX_DEPTH)
+
+        x_pos += SCALE
         ray_angle += DELTA_ANGLE
 
     return depths
@@ -146,7 +166,7 @@ def draw_enemies(depths):
         if -fov/2 < angle_to_enemy < fov/2:
             size = int(21000 / (dist + 0.1))
             x = int((angle_to_enemy + fov/2) / fov * WIDTH) - size // 2
-            y = HEIGHT // 2 - size // 2
+            y = HALF_HEIGHT - size // 2
 
             ray = int(x / SCALE)
             if 0 < ray < len(depths) and dist < depths[ray]:
@@ -155,6 +175,8 @@ def draw_enemies(depths):
 
 
 def shoot():
+    global gun_animating, gun_frame
+
     bullets.append({
         "x": px,
         "y": py,
@@ -163,6 +185,10 @@ def shoot():
         "life": 60,
         "damage": current_weapon["damage"]
     })
+
+    gun_animating = True
+    gun_frame = 0
+
 
 
 
@@ -201,12 +227,15 @@ def draw_bullets(depths):
         if -fov/2 < angle_to_bullet < fov/2:
             size = max(4, int(300 / (dist + 0.1)))
             x = int((angle_to_bullet + fov/2) / fov * WIDTH) - size // 2
-            y = HEIGHT // 2 - size // 2
+            y = HALF_HEIGHT - size // 2
 
             ray = int(x / SCALE)
             if 0 < ray < len(depths) and dist < depths[ray]:
                 sprite = pygame.transform.scale(bullet_tex, (size, size))
-                screen.blit(sprite, (x, y))
+                screen.blit(
+                    gun,
+                    (WIDTH // 2 - 150, HEIGHT - 200 + gun_recoil)
+                )
 
 
 def draw_minimap():
@@ -254,8 +283,8 @@ load_level()
 running = True
 while running:
     screen.fill((0,0,0))
-    pygame.draw.rect(screen,(70,90,160),(0,0,WIDTH,HEIGHT//2))
-    pygame.draw.rect(screen,(50,50,50),(0,HEIGHT//2,WIDTH,HEIGHT//2))
+    pygame.draw.rect(screen, (70, 90, 160), (0, 0, WIDTH, HALF_HEIGHT))
+    pygame.draw.rect(screen, (50, 50, 50), (0, HALF_HEIGHT, WIDTH, HALF_HEIGHT))
 
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
@@ -310,8 +339,26 @@ while running:
 
     if keys[pygame.K_TAB]:
         draw_minimap()
+    # 🔥 обновление отдачи
+    if gun_animating:
+        gun_frame += gun_anim_speed
+        if gun_frame >= len(current_weapon["frames"]):
+            gun_animating = False
+            gun_frame = 0
 
-    gun = pygame.transform.scale(current_weapon["image"], (300, 160))
+    if gun_animating:
+        gun_frame += gun_anim_speed
+        if gun_frame >= len(current_weapon["frames"]):
+            gun_animating = False
+            gun_frame = 00
+
+    if gun_animating:
+        frame_image = current_weapon["frames"][int(gun_frame)]
+    else:
+        frame_image = current_weapon["frames"][0]
+
+    gun = pygame.transform.scale(frame_image, (300, 160))
+
     screen.blit(gun, (WIDTH // 2 - 150, HEIGHT - 200))
 
     check_level_exit()
