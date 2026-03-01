@@ -4,8 +4,9 @@ import random
 import sys
 import json
 import os
-from weapons import weapons, load_weapon_textures
+from weapons import weapons, load_weapon_textures, weapon_sounds
 from level import levels
+import mixer
 pygame.init()
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 SAVE_FILE = os.path.join(BASE_DIR, "save.json")
@@ -16,9 +17,9 @@ if len(sys.argv) > 1:
 
 WIDTH, HEIGHT = 1360, 800
 screen = pygame.display.set_mode((WIDTH, HEIGHT))
-pygame.display.set_caption("DOOM THE KILL FYRRE")
+pygame.display.set_caption(" not DOOM THE KILL FYRRE")
 clock = pygame.time.Clock()
-
+pygame.mixer.init()
 pygame.mouse.set_visible(False)
 pygame.event.set_grab(True)
 
@@ -176,7 +177,7 @@ def draw_enemies(depths):
 
 def shoot():
     global gun_animating, gun_frame
-
+    weapon_sounds[current_weapon["name"]].play()
     bullets.append({
         "x": px,
         "y": py,
@@ -185,7 +186,6 @@ def shoot():
         "life": 60,
         "damage": current_weapon["damage"]
     })
-
     gun_animating = True
     gun_frame = 0
 
@@ -351,9 +351,12 @@ while running:
     else:
         frame_image = current_weapon["frames"][0]
 
-    gun = pygame.transform.scale(frame_image, (300, 160))
-
-    screen.blit(gun, (WIDTH // 2 - 150, HEIGHT - 200))
+    gun = pygame.transform.scale(frame_image, (300, 200))
+    if current_weapon["name"] == "Rifle":
+        x_offset = 0
+    else:
+        x_offset = 60
+    screen.blit(gun, (WIDTH // 2 - 150 + x_offset , HEIGHT - 200))
 
     check_level_exit()
 

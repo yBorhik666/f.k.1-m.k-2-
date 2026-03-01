@@ -3,7 +3,7 @@ import pygame
 weapons = [
     {
         "name": "Pistol",
-        "damage": 1,
+        "damage": 2.09,
         "fire_rate": 20,
         "speed": 12,
         "frames": [
@@ -11,18 +11,21 @@ weapons = [
             "image/pistol_1.png",
             "image/pistol_2.png",
             "image/pistol_3.png"
-        ]
+        ],
+        "sound": "sound/pistol.wav"
     },
     {
-        "name": "Tezer",
-        "damage": 15,
-        "fire_rate": 40,
-        "speed": 100,
+        "name": "Shotgun",
+        "damage": 3.95,
+        "fire_rate": 5,
+        "speed": 18,
         "frames": [
             "image/shotgun_0.png",
             "image/shotgun_1.png",
-            "image/shotgun_2.png"
-        ]
+            "image/shotgun_2.png",
+            "image/shotgun_3.png"
+        ],
+        "sound": "sound/shotgun.wav"
     },
     {
         "name": "Rifle",
@@ -30,24 +33,32 @@ weapons = [
         "fire_rate": 5,
         "speed": 18,
         "frames": [
-            "image/shotgun_0.png",
-            "image/shotgun_1.png",
-            "image/shotgun_2.png"
-        ]
+            "image/m240.png",
+            "image/m240_1.png",
+            "image/m240_2.png",
+            "image/m240_3.png",
+            "image/m240_4.png",
+            "image/m240_5.png",
+            "image/m240_6.png"
+        ],
+        "sound": "sound/m.wav"
     },
     {
-        "name": "Shutgun",
-        "damage": 1.95,
-        "fire_rate": 5,
-        "speed": 18,
+        "name": "Tezer",
+        "damage": 35,
+        "fire_rate": 40,
+        "speed": 100,
         "frames": [
             "image/shotgun_0.png",
             "image/shotgun_1.png",
-            "image/shotgun_2.png"
-        ]
+            "image/shotgun_2.png",
+            "image/shotgun_3.png"
+        ],
+        "sound": "sound/tezer.wav"
     }
 ]
 
+weapon_sounds = {}
 
 def load_weapon_textures():
     for weapon in weapons:
@@ -55,3 +66,4 @@ def load_weapon_textures():
             pygame.image.load(frame).convert_alpha()
             for frame in weapon["frames"]
         ]
+        weapon_sounds[weapon["name"]] = pygame.mixer.Sound(weapon["sound"])
