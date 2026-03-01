@@ -19,9 +19,9 @@ weapons = [
         "fire_rate": 40,
         "speed": 100,
         "frames": [
-            "image/tezer_0.png",
-            "image/tezer_1.png",
-            "image/tezer_2.png"
+            "image/shotgun_0.png",
+            "image/shotgun_1.png",
+            "image/shotgun_2.png"
         ]
     },
     {
@@ -30,9 +30,9 @@ weapons = [
         "fire_rate": 5,
         "speed": 18,
         "frames": [
-            "image/mini_gun_0.png",
-            "image/mini_gun_1.png",
-            "image/mini_gun_2.png"
+            "image/shotgun_0.png",
+            "image/shotgun_1.png",
+            "image/shotgun_2.png"
         ]
     },
     {

@@ -43,10 +43,10 @@ spawn_timer = 0
 wall_tex = pygame.image.load("image/wall.png").convert()
 enemy_sprite = pygame.image.load("image/eNemi.png").convert_alpha()
 gun_tex = load_weapon_textures()
-bullet_tex = pygame.image.load("image/bullets_0.png").convert_alpha()
+bullet_tex = pygame.image.load("image/Cacodemon.png").convert_alpha()
 
 TEX_SIZE = wall_tex.get_width()
-load_weapon_textures()
+
 current_weapon_index = 0
 current_weapon = weapons[current_weapon_index]
 gun_frame = 0
@@ -232,10 +232,7 @@ def draw_bullets(depths):
             ray = int(x / SCALE)
             if 0 < ray < len(depths) and dist < depths[ray]:
                 sprite = pygame.transform.scale(bullet_tex, (size, size))
-                screen.blit(
-                    gun,
-                    (WIDTH // 2 - 150, HEIGHT - 200 + gun_recoil)
-                )
+                screen.blit(sprite, (x, y))
 
 
 def draw_minimap():
@@ -289,7 +286,7 @@ while running:
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             running=False
-        if event.type == pygame.MOUSEBUTTONDOWN:
+        if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
             shoot()
         if event.type == pygame.MOUSEWHEEL:
             current_weapon_index += event.y
@@ -346,13 +343,8 @@ while running:
             gun_animating = False
             gun_frame = 0
 
-    if gun_animating:
-        frame_image = current_weapon["frames"][int(gun_frame)]
-    else:
-        frame_image = current_weapon["frames"][0]
 
-    gun = pygame.transform.scale(frame_image, (300, 160))
-    screen.blit(gun, (WIDTH // 2 - 150, HEIGHT - 200))
+
 
     if gun_animating:
         frame_image = current_weapon["frames"][int(gun_frame)]
