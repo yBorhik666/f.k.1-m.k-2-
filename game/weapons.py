@@ -12,7 +12,8 @@ weapons = [
             "image/pistol_2.png",
             "image/pistol_3.png"
         ],
-        "sound": "sound/pistol.wav"
+        "sound": "sound/pistol.wav",
+        "auto": False
     },
     {
         "name": "Shotgun",
@@ -25,7 +26,8 @@ weapons = [
             "image/shotgun_2.png",
             "image/shotgun_3.png"
         ],
-        "sound": "sound/shotgun.wav"
+        "sound": "sound/shotgun.wav",
+        "auto": False
     },
     {
         "name": "Rifle",
@@ -41,7 +43,8 @@ weapons = [
             "image/m240_5.png",
             "image/m240_6.png"
         ],
-        "sound": "sound/m.wav"
+        "sound": "sound/m.wav",
+        "auto": True
     },
     {
         "name": "Tezer",
@@ -54,7 +57,8 @@ weapons = [
             "image/shotgun_2.png",
             "image/shotgun_3.png"
         ],
-        "sound": "sound/tezer.wav"
+        "sound": "sound/tezer.wav",
+        "auto": False
     }
 ]
 

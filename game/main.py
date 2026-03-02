@@ -44,7 +44,7 @@ spawn_timer = 0
 wall_tex = pygame.image.load("image/wall.png").convert()
 enemy_sprite = pygame.image.load("image/eNemi.png").convert_alpha()
 gun_tex = load_weapon_textures()
-bullet_tex = pygame.image.load("image/Cacodemon.png").convert_alpha()
+bullet_tex = pygame.image.load("image/bullet_0.png").convert_alpha()
 
 TEX_SIZE = wall_tex.get_width()
 
