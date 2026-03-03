@@ -40,12 +40,13 @@ HALF_HEIGHT = HEIGHT // 2
 bullets = []
 enemies = []
 spawn_timer = 0
-
+medkits = []
+medkit_img = pygame.image.load("image/medik.png").convert_alpha()
 wall_tex = pygame.image.load("image/wall.png").convert()
 enemy_sprite = pygame.image.load("image/eNemi.png").convert_alpha()
 gun_tex = load_weapon_textures()
 bullet_tex = pygame.image.load("image/bullet_0.png").convert_alpha()
-
+heal_sound = pygame.mixer.Sound("sound/medik.wav")
 TEX_SIZE = wall_tex.get_width()
 
 current_weapon_index = 0
@@ -189,6 +190,44 @@ def update_enemies():
         if dist < 40:
             player_hp -= 0.2   # скорость урона
 
+def draw_medkits(depths):
+    for med in medkits:
+        if med["picked"]:
+            continue
+
+        dx = med["x"] - px
+        dy = med["y"] - py
+        dist = math.hypot(dx, dy)
+
+        angle_to_med = math.atan2(dy, dx) - angle
+
+        if -fov/2 < angle_to_med < fov/2:
+            size = int(21000 / (dist + 0.1))
+            x = int((angle_to_med + fov/2) / fov * WIDTH) - size // 2
+            y = HALF_HEIGHT - size // 2
+
+            ray = int(x / SCALE)
+            if 0 < ray < len(depths) and dist < depths[ray]:
+                sprite = pygame.transform.scale(medkit_img, (size, size))
+                screen.blit(sprite, (x, y))
+
+def update_medkits():
+    global player_hp
+
+    for med in medkits:
+        if med["picked"]:
+            continue
+
+        dist = math.hypot(px - med["x"], py - med["y"])
+
+        if dist < 40:
+            med["picked"] = True
+            player_hp += 25
+            if player_hp > max_hp:
+                player_hp = max_hp
+
+            heal_sound.play()
+
 def shoot():
     global gun_animating, gun_frame
     weapon_sounds[current_weapon["name"]].play()
@@ -214,20 +253,33 @@ def update_bullets():
 
         mx, my = int(bullet["x"] // TILE), int(bullet["y"] // TILE)
 
+        # Удаление если в стену или вышла жизнь
         if not (0 <= my < len(world_map) and 0 <= mx < len(world_map[0])) \
                 or world_map[my][mx] == "1" \
                 or bullet["life"] <= 0:
             bullets.remove(bullet)
             continue
 
+        # Проверка попадания во врагов
         for enemy in enemies:
             if enemy["alive"]:
                 if math.hypot(enemy["x"] - bullet["x"], enemy["y"] - bullet["y"]) < 20:
-                    enemy["hp"] = enemy.get("hp", 3) - bullet["damage"]
+                    enemy["hp"] -= bullet["damage"]
+
                     if enemy["hp"] <= 0:
                         enemy["alive"] = False
+
+                        # 🎲 шанс выпадения аптечки
+                        if random.random() < 0.3:
+                            medkits.append({
+                                "x": enemy["x"],
+                                "y": enemy["y"],
+                                "picked": False
+                            })
+
                     if bullet in bullets:
                         bullets.remove(bullet)
+                    break
 
 
 def draw_bullets(depths):
@@ -394,7 +446,8 @@ while running:
     update_enemies()
     draw_hp()
     check_level_exit()
-
+    draw_medkits(depths)
+    update_medkits()
     pygame.display.flip()
     clock.tick(60)
 
