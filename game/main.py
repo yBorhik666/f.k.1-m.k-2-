@@ -2,7 +2,6 @@ import pygame
 import math
 import random
 import sys
-import json
 import os
 from weapons import weapons, load_weapon_textures, weapon_sounds
 from level import levels
@@ -22,7 +21,8 @@ clock = pygame.time.Clock()
 pygame.mixer.init()
 pygame.mouse.set_visible(False)
 pygame.event.set_grab(True)
-
+player_hp = 100
+max_hp = 100
 TILE = 64
 
 px, py = 150, 150
@@ -174,6 +174,20 @@ def draw_enemies(depths):
                 sprite = pygame.transform.scale(enemy_sprite, (size, size))
                 screen.blit(sprite, (x, y))
 
+def update_enemies():
+    global player_hp
+
+    for enemy in enemies:
+        if not enemy["alive"]:
+            continue
+
+        dx = px - enemy["x"]
+        dy = py - enemy["y"]
+        dist = math.hypot(dx, dy)
+
+        # Если враг рядом — наносит урон
+        if dist < 40:
+            player_hp -= 0.2   # скорость урона
 
 def shoot():
     global gun_animating, gun_frame
@@ -234,6 +248,23 @@ def draw_bullets(depths):
                 sprite = pygame.transform.scale(bullet_tex, (size, size))
                 screen.blit(sprite, (x, y))
 
+def draw_hp():
+    bar_width = 300
+    bar_height = 25
+    x = 20
+    y = HEIGHT - 40
+
+    # фон
+    pygame.draw.rect(screen, (80, 0, 0), (x, y, bar_width, bar_height))
+
+    # текущее HP
+    hp_ratio = player_hp / max_hp
+    pygame.draw.rect(screen, (200, 0, 0),
+                     (x, y, bar_width * hp_ratio, bar_height))
+
+    # рамка
+    pygame.draw.rect(screen, (255,255,255),
+                     (x, y, bar_width, bar_height), 2)
 
 def draw_minimap():
     scale = 15
@@ -282,7 +313,10 @@ while running:
     screen.fill((0,0,0))
     pygame.draw.rect(screen, (70, 90, 160), (0, 0, WIDTH, HALF_HEIGHT))
     pygame.draw.rect(screen, (50, 50, 50), (0, HALF_HEIGHT, WIDTH, HALF_HEIGHT))
-
+    if player_hp <= 0:
+        print("Ты умер")
+        pygame.quit()
+        exit()
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             running=False
@@ -357,7 +391,8 @@ while running:
     else:
         x_offset = 60
     screen.blit(gun, (WIDTH // 2 - 150 + x_offset , HEIGHT - 200))
-
+    update_enemies()
+    draw_hp()
     check_level_exit()
 
     pygame.display.flip()
