@@ -8,8 +8,8 @@ levels = {
             "1000000000000000010000001",
             "1111111111111111111111111",
         ],
-        "max_enemies": 5,
-        "spawn_delay": 160
+        "max_enemies": 8,
+        "spawn_delay": 130
     },
     2: {
         "map": [
