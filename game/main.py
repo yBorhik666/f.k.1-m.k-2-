@@ -39,6 +39,34 @@ def run_game(screen):
     spawn_timer = 0
     medkits = []
 
+    # --- Camera bob state ---
+    bob_timer = 0.0
+    bob_offset = 0.0          # вертикальное смещение «камеры»
+    BOB_SPEED = 0.12          # скорость качания
+    BOB_AMPLITUDE = 8         # амплитуда в пикселях
+
+    # --- Hit particles ---
+    particles = []            # список частичек
+
+    # --- Hit sound (генерируем программно если нет файла, иначе грузим) ---
+    hit_sound = None
+    hit_sound_path = "sound/hit.wav"
+    if os.path.exists(hit_sound_path):
+        hit_sound = pygame.mixer.Sound(hit_sound_path)
+    else:
+        # Генерируем простой «шлепок» через синтез
+        try:
+            import numpy as np
+            sample_rate = 44100
+            duration = 0.08
+            t = np.linspace(0, duration, int(sample_rate * duration), False)
+            freq = 180
+            wave = (np.sin(2 * np.pi * freq * t) * np.exp(-t * 40) * 32767).astype(np.int16)
+            stereo = np.column_stack([wave, wave])
+            hit_sound = pygame.sndarray.make_sound(stereo)
+        except Exception:
+            hit_sound = None
+
     medkit_img = pygame.image.load("image/medik.png").convert_alpha()
     wall_tex = pygame.image.load("image/wall.png").convert()
     enemy_sprite = pygame.image.load("image/eNemi.png").convert_alpha()
@@ -92,7 +120,8 @@ def run_game(screen):
                     enemies.append({"x": x, "y": y, "alive": True, "hp": 10})
                     break
 
-    def cast_walls():
+    def cast_walls(v_offset=0):
+        """v_offset — вертикальный сдвиг в пикселях (camera bob)."""
         ray_angle = angle - fov / 2
         depths = []
         x_pos = 0
@@ -123,7 +152,8 @@ def run_game(screen):
                 tex_x = int(hit_x * TEX_SIZE / TILE)
                 column = wall_tex.subsurface(tex_x, 0, 1, TEX_SIZE)
                 column = pygame.transform.scale(column, (int(SCALE) + 1, int(proj_h)))
-                screen.blit(column, (int(x_pos), HALF_HEIGHT - proj_h // 2))
+                # применяем вертикальный сдвиг bob
+                screen.blit(column, (int(x_pos), HALF_HEIGHT - proj_h // 2 + int(v_offset)))
                 depths.append(depth)
             else:
                 depths.append(MAX_DEPTH)
@@ -133,7 +163,7 @@ def run_game(screen):
 
         return depths
 
-    def draw_enemies(depths):
+    def draw_enemies(depths, v_offset=0):
         for enemy in enemies:
             if not enemy["alive"]:
                 continue
@@ -144,7 +174,7 @@ def run_game(screen):
             if -fov / 2 < angle_to_enemy < fov / 2:
                 size = int(21000 / (dist + 0.1))
                 x = int((angle_to_enemy + fov / 2) / fov * WIDTH) - size // 2
-                y = HALF_HEIGHT - size // 2
+                y = HALF_HEIGHT - size // 2 + int(v_offset)
                 ray = int(x / SCALE)
                 if 0 < ray < len(depths) and dist < depths[ray]:
                     sprite = pygame.transform.scale(enemy_sprite, (size, size))
@@ -161,7 +191,7 @@ def run_game(screen):
             if dist < 40:
                 player_hp -= 0.2
 
-    def draw_medkits(depths):
+    def draw_medkits(depths, v_offset=0):
         for med in medkits:
             if med["picked"]:
                 continue
@@ -172,7 +202,7 @@ def run_game(screen):
             if -fov / 2 < angle_to_med < fov / 2:
                 size = int(21000 / (dist + 0.1))
                 x = int((angle_to_med + fov / 2) / fov * WIDTH) - size // 2
-                y = HALF_HEIGHT - size // 2
+                y = HALF_HEIGHT - size // 2 + int(v_offset)
                 ray = int(x / SCALE)
                 if 0 < ray < len(depths) and dist < depths[ray]:
                     sprite = pygame.transform.scale(medkit_img, (size, size))
@@ -203,6 +233,55 @@ def run_game(screen):
         gun_animating = True
         gun_frame = 0
 
+    def spawn_hit_particles(enemy):
+        """Создаём брызги крови в точке врага."""
+        ex, ey = enemy["x"], enemy["y"]
+        dx = ex - px
+        dy = ey - py
+        dist = max(1, math.hypot(dx, dy))
+        angle_to = math.atan2(dy, dx) - angle
+
+        if not (-fov / 2 < angle_to < fov / 2):
+            return
+
+        screen_x = int((angle_to + fov / 2) / fov * WIDTH)
+        size_base = int(21000 / (dist + 0.1))
+        screen_y = HALF_HEIGHT - size_base // 2
+
+        for _ in range(random.randint(8, 14)):
+            vx = random.uniform(-3, 3)
+            vy = random.uniform(-4, 0.5)
+            color = random.choice([
+                (180, 0, 0), (220, 10, 10), (140, 0, 0), (255, 30, 30)
+            ])
+            r = random.randint(3, 7)
+            life = random.randint(15, 30)
+            particles.append({
+                "x": float(screen_x + random.randint(-10, 10)),
+                "y": float(screen_y + random.randint(0, size_base // 2)),
+                "vx": vx,
+                "vy": vy,
+                "color": color,
+                "r": r,
+                "life": life,
+                "max_life": life
+            })
+
+    def update_and_draw_particles():
+        for p in particles[:]:
+            p["x"] += p["vx"]
+            p["y"] += p["vy"]
+            p["vy"] += 0.3   # гравитация
+            p["life"] -= 1
+            if p["life"] <= 0:
+                particles.remove(p)
+                continue
+            alpha = int(255 * p["life"] / p["max_life"])
+            r = max(1, int(p["r"] * p["life"] / p["max_life"]))
+            surf = pygame.Surface((r * 2, r * 2), pygame.SRCALPHA)
+            pygame.draw.circle(surf, (*p["color"], alpha), (r, r), r)
+            screen.blit(surf, (int(p["x"]) - r, int(p["y"]) - r))
+
     def update_bullets():
         for bullet in bullets[:]:
             bullet["x"] += bullet["speed"] * math.cos(bullet["angle"])
@@ -218,6 +297,10 @@ def run_game(screen):
                 if enemy["alive"]:
                     if math.hypot(enemy["x"] - bullet["x"], enemy["y"] - bullet["y"]) < 20:
                         enemy["hp"] -= bullet["damage"]
+                        # --- Частички и звук при попадании ---
+                        spawn_hit_particles(enemy)
+                        if hit_sound:
+                            hit_sound.play()
                         if enemy["hp"] <= 0:
                             enemy["alive"] = False
                             if random.random() < 0.3:
@@ -287,8 +370,6 @@ def run_game(screen):
     running = True
     while running:
         screen.fill((0, 0, 0))
-        pygame.draw.rect(screen, (70, 90, 160), (0, 0, WIDTH, HALF_HEIGHT))
-        pygame.draw.rect(screen, (50, 50, 50), (0, HALF_HEIGHT, WIDTH, HALF_HEIGHT))
 
         if player_hp <= 0:
             print("Ты умер")
@@ -304,44 +385,63 @@ def run_game(screen):
                 current_weapon_index = (current_weapon_index + event.y) % len(weapons)
                 current_weapon = weapons[current_weapon_index]
 
-        mx, _ = pygame.mouse.get_rel()
-        angle += mx * mouse_sens
+        mx_rel, _ = pygame.mouse.get_rel()
+        angle += mx_rel * mouse_sens
 
         keys = pygame.key.get_pressed()
+        is_moving = False
 
         if keys[pygame.K_w]:
             nx = px + speed * math.cos(angle)
             ny = py + speed * math.sin(angle)
             if not is_wall(nx, ny):
                 px, py = nx, ny
+                is_moving = True
 
         if keys[pygame.K_s]:
             nx = px - speed * math.cos(angle)
             ny = py - speed * math.sin(angle)
             if not is_wall(nx, ny):
                 px, py = nx, ny
+                is_moving = True
 
         if keys[pygame.K_a]:
             nx = px + speed * math.sin(angle)
             ny = py - speed * math.cos(angle)
             if not is_wall(nx, ny):
                 px, py = nx, ny
+                is_moving = True
 
         if keys[pygame.K_d]:
             nx = px - speed * math.sin(angle)
             ny = py + speed * math.cos(angle)
             if not is_wall(nx, ny):
                 px, py = nx, ny
+                is_moving = True
+
+        # --- Camera bob update ---
+        if is_moving:
+            bob_timer += BOB_SPEED
+        else:
+            # плавно возвращаем к нулю
+            bob_timer += BOB_SPEED * 0.5
+        bob_offset = math.sin(bob_timer) * BOB_AMPLITUDE if is_moving else \
+                     math.sin(bob_timer) * BOB_AMPLITUDE * max(0, 1 - abs(math.sin(bob_timer)))
+
+        # Небо и пол со смещением
+        pygame.draw.rect(screen, (70, 90, 160), (0, 0, WIDTH, HALF_HEIGHT + int(bob_offset)))
+        pygame.draw.rect(screen, (50, 50, 50), (0, HALF_HEIGHT + int(bob_offset), WIDTH, HALF_HEIGHT))
 
         spawn_timer += 1
         if spawn_timer >= SPAWN_DELAY and len(enemies) < MAX_ENEMIES:
             spawn_enemy()
             spawn_timer = 0
 
-        depths = cast_walls()
-        draw_enemies(depths)
+        depths = cast_walls(bob_offset)
+        draw_enemies(depths, bob_offset)
         draw_bullets(depths)
         update_bullets()
+        update_and_draw_particles()  # частички поверх всего 3D
 
         if keys[pygame.K_TAB]:
             draw_minimap()
@@ -352,15 +452,20 @@ def run_game(screen):
                 gun_animating = False
                 gun_frame = 0
 
+        # Gun bob: пушка тоже покачивается
+        gun_bob_x = math.sin(bob_timer) * 6 if is_moving else 0
+        gun_bob_y = abs(math.sin(bob_timer)) * 5 if is_moving else 0
+
         frame_image = current_weapon["frames"][int(gun_frame)] if gun_animating else current_weapon["frames"][0]
         gun = pygame.transform.scale(frame_image, (300, 200))
         x_offset = 0 if current_weapon["name"] == "Rifle" else 60
-        screen.blit(gun, (WIDTH // 2 - 150 + x_offset, HEIGHT - 200))
+        screen.blit(gun, (WIDTH // 2 - 150 + x_offset + int(gun_bob_x),
+                           HEIGHT - 200 + int(gun_bob_y)))
 
         update_enemies()
         draw_hp()
         check_level_exit()
-        draw_medkits(depths)
+        draw_medkits(depths, bob_offset)
         update_medkits()
 
         pygame.display.flip()
@@ -378,5 +483,5 @@ if __name__ == "__main__":
     screen = pygame.display.set_mode((WIDTH, HEIGHT))
     pygame.display.set_caption("not DOOM THE KILL FYRRE")
 
-    if run_menu(screen):   # ✅ ИСПРАВЛЕНО: игра запускается только если нажат СТАРТ
+    if run_menu(screen):
         run_game(screen)
