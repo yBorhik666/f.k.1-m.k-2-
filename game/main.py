@@ -70,10 +70,15 @@ def run_game(screen):
     medkit_img = pygame.image.load("image/medik.png").convert_alpha()
     wall_tex = pygame.image.load("image/wall.png").convert()
     enemy_sprite = pygame.image.load("image/eNemi.png").convert_alpha()
+    lilith_sprite = pygame.image.load("image/lilith.png").convert_alpha()
+    spear_img = pygame.image.load("image/spear_of_lilith.png").convert_alpha()
     load_weapon_textures()
     bullet_tex = pygame.image.load("image/bullet_0.png").convert_alpha()
     heal_sound = pygame.mixer.Sound("sound/medik.wav")
     TEX_SIZE = wall_tex.get_width()
+
+    # --- Lilith boss entity ---
+    lilith = None   # None если не заспавнена / убита
 
     current_weapon_index = 0
     current_weapon = weapons[current_weapon_index]
@@ -87,9 +92,14 @@ def run_game(screen):
 
     def load_level():
         nonlocal world_map, MAX_ENEMIES, SPAWN_DELAY, px, py
+        nonlocal sky_color, floor_color, is_lilit, lilit_title_timer, lilith
+        nonlocal spear_unlocked, spear_cooldown
 
         enemies.clear()
         medkits.clear()
+        lilith = None
+        spear_unlocked = False
+        spear_cooldown = 0
 
         if LEVEL in levels:
             level_data = levels[LEVEL]
@@ -99,6 +109,26 @@ def run_game(screen):
         world_map = level_data["map"]
         MAX_ENEMIES = level_data["max_enemies"]
         SPAWN_DELAY = level_data["spawn_delay"]
+        sky_color = level_data.get("sky_color", (70, 90, 160))
+
+        # Особые параметры для уровня Лилит
+        is_lilit = level_data.get("name", "") == "LILIT"
+        if is_lilit:
+            floor_color = (40, 0, 0)
+            lilit_title_timer = 180
+            # Ищем 'L' на карте — позиция Лилит-NPC
+            for row_i, row in enumerate(world_map):
+                for col_i, char in enumerate(row):
+                    if char == "L":
+                        lilith = {
+                            "x": col_i * TILE + TILE // 2,
+                            "y": row_i * TILE + TILE // 2,
+                            "alive": True,
+                            "gave_spear": False,
+                        }
+        else:
+            floor_color = (50, 50, 50)
+            lilit_title_timer = 0
 
         px = 150
         py = 150
@@ -171,12 +201,28 @@ def run_game(screen):
             dy = enemy["y"] - py
             dist = math.hypot(dx, dy)
             angle_to_enemy = math.atan2(dy, dx) - angle
+
+            # нормализуем угол в [-pi, pi]
+            while angle_to_enemy > math.pi:
+                angle_to_enemy -= 2 * math.pi
+            while angle_to_enemy < -math.pi:
+                angle_to_enemy += 2 * math.pi
+
             if -fov / 2 < angle_to_enemy < fov / 2:
                 size = int(21000 / (dist + 0.1))
                 x = int((angle_to_enemy + fov / 2) / fov * WIDTH) - size // 2
                 y = HALF_HEIGHT - size // 2 + int(v_offset)
-                ray = int(x / SCALE)
-                if 0 < ray < len(depths) and dist < depths[ray]:
+                ray_center = int((angle_to_enemy + fov / 2) / fov * NUM_RAYS)
+
+                # проверяем диапазон лучей по ширине спрайта
+                half_sprite_rays = max(1, size // int(SCALE + 1) // 2)
+                ray_start = max(0, ray_center - half_sprite_rays)
+                ray_end = min(len(depths) - 1, ray_center + half_sprite_rays)
+
+                # берём максимальную глубину — враг виден если хоть один луч не перекрыт
+                max_depth = max(depths[r] for r in range(ray_start, ray_end + 1))
+
+                if dist < max_depth:
                     sprite = pygame.transform.scale(enemy_sprite, (size, size))
                     screen.blit(sprite, (x, y))
 
@@ -190,6 +236,123 @@ def run_game(screen):
             dist = math.hypot(dx, dy)
             if dist < 40:
                 player_hp -= 0.2
+
+    def draw_lilith(depths, v_offset=0):
+        """Рисует Лилит — большой босс-спрайт с кровавым свечением."""
+        if lilith is None or not lilith["alive"]:
+            return
+        dx = lilith["x"] - px
+        dy = lilith["y"] - py
+        dist = math.hypot(dx, dy)
+        angle_to = math.atan2(dy, dx) - angle
+        while angle_to > math.pi:
+            angle_to -= 2 * math.pi
+        while angle_to < -math.pi:
+            angle_to += 2 * math.pi
+        if -fov / 2 < angle_to < fov / 2:
+            # Лилит в 2x больше обычного врага
+            size = int(32000 / (dist + 0.1))
+            x = int((angle_to + fov / 2) / fov * WIDTH) - size // 2
+            y = HALF_HEIGHT - size // 2 + int(v_offset)
+            ray_center = int((angle_to + fov / 2) / fov * NUM_RAYS)
+            half_rays = max(1, size // int(SCALE + 1) // 2)
+            ray_start = max(0, ray_center - half_rays)
+            ray_end = min(len(depths) - 1, ray_center + half_rays)
+            max_depth = max(depths[r] for r in range(ray_start, ray_end + 1))
+            if dist < max_depth:
+                # Красное свечение вокруг
+                glow_size = size + 20
+                glow = pygame.Surface((glow_size, glow_size), pygame.SRCALPHA)
+                pulse = int(60 + 40 * math.sin(lilit_pulse_timer * 2))
+                pygame.draw.ellipse(glow, (180, 0, 0, pulse),
+                                    (0, 0, glow_size, glow_size))
+                screen.blit(glow, (x - 10, y - 10))
+                sprite = pygame.transform.scale(lilith_sprite, (size, size))
+                screen.blit(sprite, (x, y))
+
+    def check_lilith_interact():
+        """Проверяет подход к Лилит и выдаёт копьё по E."""
+        nonlocal spear_unlocked, spear_anim_timer
+        if lilith is None or not lilith["alive"]:
+            return
+        dist = math.hypot(px - lilith["x"], py - lilith["y"])
+        if dist < 100 and not spear_unlocked:
+            if keys[pygame.K_e]:
+                spear_unlocked = True
+                spear_anim_timer = 0
+                lilith["gave_spear"] = True
+
+    def draw_lilith_prompt():
+        """Подсказка [E] внизу экрана когда рядом с Лилит."""
+        if lilith is None or not lilith["alive"] or spear_unlocked:
+            return
+        dist = math.hypot(px - lilith["x"], py - lilith["y"])
+        if dist < 100:
+            font = pygame.font.SysFont("impact", 28)
+            prompt = font.render("[E]  Взять копьё Лилит", True, (255, 200, 80))
+            # фон-плашка
+            pad = 14
+            bg = pygame.Surface((prompt.get_width() + pad * 2, prompt.get_height() + pad), pygame.SRCALPHA)
+            bg.fill((0, 0, 0, 160))
+            bx = WIDTH // 2 - bg.get_width() // 2
+            by = HEIGHT - 90
+            screen.blit(bg, (bx, by))
+            screen.blit(prompt, (bx + pad, by + pad // 2))
+
+    def draw_spear():
+        """Рисует копьё в правом нижнем углу если разблокировано."""
+        if not spear_unlocked:
+            return
+        gun_w, gun_h = 280, 160
+        scaled = pygame.transform.scale(spear_img, (gun_w, gun_h))
+        # лёгкое покачивание как у оружия
+        bob_x = int(math.sin(bob_timer) * 6) if is_moving else 0
+        bob_y = int(abs(math.sin(bob_timer)) * 5) if is_moving else 0
+        screen.blit(scaled, (WIDTH - gun_w - 20 + bob_x, HEIGHT - gun_h - 10 + bob_y))
+        # кулдаун затемнение
+        if spear_cooldown > 0:
+            cd_surf = pygame.Surface((gun_w, gun_h), pygame.SRCALPHA)
+            alpha = int(160 * spear_cooldown / 90)
+            cd_surf.fill((0, 0, 0, alpha))
+            screen.blit(cd_surf, (WIDTH - gun_w - 20 + bob_x, HEIGHT - gun_h - 10 + bob_y))
+        # Подсказка F
+        font = pygame.font.SysFont("impact", 18)
+        label = font.render("[F] Бросить копьё", True, (200, 180, 100))
+        screen.blit(label, (WIDTH - label.get_width() - 10, HEIGHT - 25))
+
+    def throw_spear():
+        """Бросок копья — мощный снаряд с большим уроном."""
+        nonlocal spear_cooldown
+        if not spear_unlocked or spear_cooldown > 0:
+            return
+        spear_cooldown = 90   # кулдаун ~1.5 сек
+        bullets.append({
+            "x": px,
+            "y": py,
+            "angle": angle,
+            "speed": 14,
+            "life": 120,
+            "damage": 80,
+            "is_spear": True,
+        })
+
+    def draw_spear_bullets(depths):
+        """Рисует летящие копья спрайтом."""
+        for bullet in bullets:
+            if not bullet.get("is_spear"):
+                continue
+            dx = bullet["x"] - px
+            dy = bullet["y"] - py
+            dist = math.hypot(dx, dy)
+            angle_to = math.atan2(dy, dx) - angle
+            if -fov / 2 < angle_to < fov / 2:
+                size = max(16, int(800 / (dist + 0.1)))
+                x = int((angle_to + fov / 2) / fov * WIDTH) - size // 2
+                y = HALF_HEIGHT - size // 2
+                ray = int(x / SCALE)
+                if 0 < ray < len(depths) and dist < depths[ray]:
+                    sprite = pygame.transform.scale(spear_img, (size, size))
+                    screen.blit(sprite, (x, y))
 
     def draw_medkits(depths, v_offset=0):
         for med in medkits:
@@ -293,11 +456,12 @@ def run_game(screen):
                     or bullet["life"] <= 0:
                 bullets.remove(bullet)
                 continue
+
             for enemy in enemies:
                 if enemy["alive"]:
-                    if math.hypot(enemy["x"] - bullet["x"], enemy["y"] - bullet["y"]) < 20:
+                    hitbox = 35 if bullet.get("is_spear") else 20
+                    if math.hypot(enemy["x"] - bullet["x"], enemy["y"] - bullet["y"]) < hitbox:
                         enemy["hp"] -= bullet["damage"]
-                        # --- Частички и звук при попадании ---
                         spawn_hit_particles(enemy)
                         if hit_sound:
                             hit_sound.play()
@@ -365,11 +529,25 @@ def run_game(screen):
                     sys.exit()
                 load_level()
 
+    sky_color = (70, 90, 160)   # цвет неба, меняется с уровнем
+    floor_color = (50, 50, 50)  # цвет пола
+
+    # --- Lilit atmosphere ---
+    lilit_title_timer = 0
+    lilit_pulse_timer = 0.0
+    is_lilit = False
+    lilith = None
+
+    # --- Копьё Лилит ---
+    spear_unlocked = False      # получено ли копьё
+    spear_cooldown = 0          # кулдаун броска
+    spear_anim_timer = 0        # не используется, резерв
+
     load_level()
 
     running = True
     while running:
-        screen.fill((0, 0, 0))
+        screen.fill((50, 50, 50))  # заливаем цветом пола — убирает чёрную полосу снизу
 
         if player_hp <= 0:
             print("Ты умер")
@@ -384,6 +562,13 @@ def run_game(screen):
             if event.type == pygame.MOUSEWHEEL:
                 current_weapon_index = (current_weapon_index + event.y) % len(weapons)
                 current_weapon = weapons[current_weapon_index]
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_f:
+                    throw_spear()
+
+        # Кулдаун копья
+        if spear_cooldown > 0:
+            spear_cooldown -= 1
 
         mx_rel, _ = pygame.mouse.get_rel()
         angle += mx_rel * mouse_sens
@@ -428,9 +613,20 @@ def run_game(screen):
         bob_offset = math.sin(bob_timer) * BOB_AMPLITUDE if is_moving else \
                      math.sin(bob_timer) * BOB_AMPLITUDE * max(0, 1 - abs(math.sin(bob_timer)))
 
-        # Небо и пол со смещением
-        pygame.draw.rect(screen, (70, 90, 160), (0, 0, WIDTH, HALF_HEIGHT + int(bob_offset)))
-        pygame.draw.rect(screen, (50, 50, 50), (0, HALF_HEIGHT + int(bob_offset), WIDTH, HALF_HEIGHT))
+        # --- Lilit: пульсация неба ---
+        if is_lilit:
+            lilit_pulse_timer += 0.04
+            pulse = (math.sin(lilit_pulse_timer) * 0.5 + 0.5)  # 0..1
+            r = int(sky_color[0] * (0.6 + 0.4 * pulse))
+            g = int(sky_color[1])
+            b = int(sky_color[2])
+            current_sky = (min(255, r), g, b)
+        else:
+            current_sky = sky_color
+
+        # Небо и пол со смещением (с запасом чтобы не было чёрных полос)
+        pygame.draw.rect(screen, current_sky, (0, 0, WIDTH, HALF_HEIGHT + int(bob_offset) + 1))
+        pygame.draw.rect(screen, floor_color, (0, HALF_HEIGHT + int(bob_offset), WIDTH, HALF_HEIGHT + BOB_AMPLITUDE + 1))
 
         spawn_timer += 1
         if spawn_timer >= SPAWN_DELAY and len(enemies) < MAX_ENEMIES:
@@ -439,7 +635,9 @@ def run_game(screen):
 
         depths = cast_walls(bob_offset)
         draw_enemies(depths, bob_offset)
+        draw_lilith(depths, bob_offset)
         draw_bullets(depths)
+        draw_spear_bullets(depths)
         update_bullets()
         update_and_draw_particles()  # частички поверх всего 3D
 
@@ -464,9 +662,38 @@ def run_game(screen):
 
         update_enemies()
         draw_hp()
+        check_lilith_interact()
+        draw_lilith_prompt()
+        draw_spear()
         check_level_exit()
         draw_medkits(depths, bob_offset)
         update_medkits()
+
+        # --- Lilit спецэффекты поверх UI ---
+        if is_lilit:
+            # Красный виньет по краям экрана
+            vign_size = 120
+            pulse_a = int(80 + 60 * math.sin(lilit_pulse_timer * 0.7))
+            for side, rect in [
+                ("left",   (0, 0, vign_size, HEIGHT)),
+                ("right",  (WIDTH - vign_size, 0, vign_size, HEIGHT)),
+                ("top",    (0, 0, WIDTH, vign_size)),
+                ("bottom", (0, HEIGHT - vign_size, WIDTH, vign_size)),
+            ]:
+                vsurf = pygame.Surface((rect[2], rect[3]), pygame.SRCALPHA)
+                vsurf.fill((120, 0, 0, pulse_a))
+                screen.blit(vsurf, (rect[0], rect[1]))
+
+            # Надпись LILIT при входе на уровень
+            if lilit_title_timer > 0:
+                lilit_title_timer -= 1
+                alpha = min(255, lilit_title_timer * 4, (180 - lilit_title_timer) * 4 + 50)
+                font_big = pygame.font.SysFont("impact", 120)
+                title_surf = font_big.render("L I L I T", True, (255, 30, 30))
+                title_surf.set_alpha(max(0, alpha))
+                tx = WIDTH // 2 - title_surf.get_width() // 2
+                ty = HEIGHT // 2 - title_surf.get_height() // 2
+                screen.blit(title_surf, (tx, ty))
 
         pygame.display.flip()
         clock.tick(60)
