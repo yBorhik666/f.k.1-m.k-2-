@@ -35,26 +35,26 @@ def run_game(screen):
     HALF_HEIGHT = HEIGHT // 2
 
     bullets = []
+    enemy_bullets = []  # пули врагов
     enemies = []
     spawn_timer = 0
     medkits = []
 
     # --- Camera bob state ---
     bob_timer = 0.0
-    bob_offset = 0.0          # вертикальное смещение «камеры»
-    BOB_SPEED = 0.12          # скорость качания
-    BOB_AMPLITUDE = 8         # амплитуда в пикселях
+    bob_offset = 0.0
+    BOB_SPEED = 0.12
+    BOB_AMPLITUDE = 8
 
     # --- Hit particles ---
-    particles = []            # список частичек
+    particles = []
 
-    # --- Hit sound (генерируем программно если нет файла, иначе грузим) ---
+    # --- Hit sound ---
     hit_sound = None
     hit_sound_path = "sound/hit.wav"
     if os.path.exists(hit_sound_path):
         hit_sound = pygame.mixer.Sound(hit_sound_path)
     else:
-        # Генерируем простой «шлепок» через синтез
         try:
             import numpy as np
             sample_rate = 44100
@@ -70,6 +70,10 @@ def run_game(screen):
     medkit_img = pygame.image.load("image/medik.png").convert_alpha()
     wall_tex = pygame.image.load("image/wall.png").convert()
     enemy_sprite = pygame.image.load("image/eNemi.png").convert_alpha()
+    shooter_sprite = pygame.image.load("image/enemis.png").convert_alpha()
+    shooter_sprite_shoot = pygame.image.load("image/enemis1.png").convert_alpha()
+    shooter_bullet_tex = pygame.image.load("image/enemis_bullet.png").convert_alpha()
+    shooter_bullet_tex2 = pygame.image.load("image/enemis_bullet1.png").convert_alpha()
     lilith_sprite = pygame.image.load("image/lilith.png").convert_alpha()
     spear_img = pygame.image.load("image/spear_of_lilith.png").convert_alpha()
     load_weapon_textures()
@@ -78,13 +82,14 @@ def run_game(screen):
     TEX_SIZE = wall_tex.get_width()
 
     # --- Lilith boss entity ---
-    lilith = None   # None если не заспавнена / убита
+    lilith = None
 
     current_weapon_index = 0
     current_weapon = weapons[current_weapon_index]
     gun_frame = 0
     gun_animating = False
     gun_anim_speed = 0.2
+    fire_timer = 0  # таймер автострельбы
 
     world_map = []
     MAX_ENEMIES = 5
@@ -111,12 +116,10 @@ def run_game(screen):
         SPAWN_DELAY = level_data["spawn_delay"]
         sky_color = level_data.get("sky_color", (70, 90, 160))
 
-        # Особые параметры для уровня Лилит
         is_lilit = level_data.get("name", "") == "LILIT"
         if is_lilit:
             floor_color = (40, 0, 0)
             lilit_title_timer = 180
-            # Ищем 'L' на карте — позиция Лилит-NPC
             for row_i, row in enumerate(world_map):
                 for col_i, char in enumerate(row):
                     if char == "L":
@@ -147,11 +150,19 @@ def run_game(screen):
                 x = mx * TILE + TILE // 2
                 y = my * TILE + TILE // 2
                 if math.hypot(x - px, y - py) > 200:
-                    enemies.append({"x": x, "y": y, "alive": True, "hp": 10})
+                    etype = "shooter" if random.random() < 0.4 else "melee"
+                    enemies.append({
+                        "x": x, "y": y,
+                        "alive": True,
+                        "hp": 10,
+                        "type": etype,
+                        "shoot_timer": random.randint(0, 60),
+                        "move_angle": random.uniform(0, math.pi * 2),
+                        "shooting_anim": 0,  # таймер анимации выстрела
+                    })
                     break
 
     def cast_walls(v_offset=0):
-        """v_offset — вертикальный сдвиг в пикселях (camera bob)."""
         ray_angle = angle - fov / 2
         depths = []
         x_pos = 0
@@ -161,7 +172,7 @@ def run_game(screen):
             cos_a = math.cos(ray_angle)
             depth = 1
             hit = False
-            x, y = px, py
+            tex_x_coord = 0
 
             while depth < MAX_DEPTH:
                 x = px + depth * cos_a
@@ -170,19 +181,20 @@ def run_game(screen):
                 if 0 <= my < len(world_map) and 0 <= mx < len(world_map[0]):
                     if world_map[my][mx] == "1":
                         hit = True
+                        tex_x_coord = int(x) % TILE
                         break
                 else:
-                    break
+                    break  # вышли за карту — останавливаем луч
                 depth += 4
 
             if hit:
                 depth *= math.cos(angle - ray_angle)
-                proj_h = 21000 / (depth + 0.0001)
-                hit_x = int(x) % TILE
-                tex_x = int(hit_x * TEX_SIZE / TILE)
+                depth = max(depth, 0.1)  # защита от деления на ноль
+                proj_h = 21000 / depth
+                tex_x = int(tex_x_coord * TEX_SIZE / TILE)
+                tex_x = max(0, min(tex_x, TEX_SIZE - 1))  # не выходим за текстуру
                 column = wall_tex.subsurface(tex_x, 0, 1, TEX_SIZE)
                 column = pygame.transform.scale(column, (int(SCALE) + 1, int(proj_h)))
-                # применяем вертикальный сдвиг bob
                 screen.blit(column, (int(x_pos), HALF_HEIGHT - proj_h // 2 + int(v_offset)))
                 depths.append(depth)
             else:
@@ -202,7 +214,6 @@ def run_game(screen):
             dist = math.hypot(dx, dy)
             angle_to_enemy = math.atan2(dy, dx) - angle
 
-            # нормализуем угол в [-pi, pi]
             while angle_to_enemy > math.pi:
                 angle_to_enemy -= 2 * math.pi
             while angle_to_enemy < -math.pi:
@@ -214,16 +225,22 @@ def run_game(screen):
                 y = HALF_HEIGHT - size // 2 + int(v_offset)
                 ray_center = int((angle_to_enemy + fov / 2) / fov * NUM_RAYS)
 
-                # проверяем диапазон лучей по ширине спрайта
                 half_sprite_rays = max(1, size // int(SCALE + 1) // 2)
                 ray_start = max(0, ray_center - half_sprite_rays)
                 ray_end = min(len(depths) - 1, ray_center + half_sprite_rays)
 
-                # берём максимальную глубину — враг виден если хоть один луч не перекрыт
                 max_depth = max(depths[r] for r in range(ray_start, ray_end + 1))
 
                 if dist < max_depth:
-                    sprite = pygame.transform.scale(enemy_sprite, (size, size))
+                    if enemy.get("type") == "shooter":
+                        if enemy.get("shooting_anim", 0) > 0:
+                            enemy["shooting_anim"] -= 1
+                            spr = shooter_sprite_shoot
+                        else:
+                            spr = shooter_sprite
+                    else:
+                        spr = enemy_sprite
+                    sprite = pygame.transform.scale(spr, (size, size))
                     screen.blit(sprite, (x, y))
 
     def update_enemies():
@@ -231,11 +248,61 @@ def run_game(screen):
         for enemy in enemies:
             if not enemy["alive"]:
                 continue
+
             dx = px - enemy["x"]
             dy = py - enemy["y"]
             dist = math.hypot(dx, dy)
-            if dist < 40:
-                player_hp -= 0.2
+
+            if enemy.get("type") == "shooter":
+                # Стрелок держит дистанцию 150-300 и стреляет
+                if dist > 300:
+                    move_x = dx / dist * 1.2
+                    move_y = dy / dist * 1.2
+                elif dist < 150:
+                    move_x = -dx / dist * 1.2
+                    move_y = -dy / dist * 1.2
+                else:
+                    move_x = 0
+                    move_y = 0
+
+                nx = enemy["x"] + move_x
+                ny = enemy["y"] + move_y
+                if not is_wall(nx, enemy["y"]):
+                    enemy["x"] = nx
+                if not is_wall(enemy["x"], ny):
+                    enemy["y"] = ny
+
+                # Стрельба по игроку
+                enemy["shoot_timer"] -= 1
+                if enemy["shoot_timer"] <= 0 and dist < 500:
+                    enemy["shoot_timer"] = random.randint(50, 90)
+                    enemy["shooting_anim"] = 15  # держим спрайт выстрела 15 кадров
+                    shoot_angle = math.atan2(dy, dx)
+                    shoot_angle += random.uniform(-0.08, 0.08)
+                    enemy_bullets.append({
+                        "x": enemy["x"],
+                        "y": enemy["y"],
+                        "angle": shoot_angle,
+                        "speed": 6,
+                        "life": 100,
+                        "damage": 5,
+                        "variant": random.randint(0, 1),  # 50/50 какой спрайт пули
+                    })
+
+            else:
+                # Ближний враг — идёт прямо к игроку
+                if dist > 1:
+                    move_x = dx / dist * 1.5
+                    move_y = dy / dist * 1.5
+                    nx = enemy["x"] + move_x
+                    ny = enemy["y"] + move_y
+                    if not is_wall(nx, enemy["y"]):
+                        enemy["x"] = nx
+                    if not is_wall(enemy["x"], ny):
+                        enemy["y"] = ny
+
+                if dist < 40:
+                    player_hp -= 0.2
 
     def draw_lilith(depths, v_offset=0):
         """Рисует Лилит — большой босс-спрайт с кровавым свечением."""
@@ -250,8 +317,7 @@ def run_game(screen):
         while angle_to < -math.pi:
             angle_to += 2 * math.pi
         if -fov / 2 < angle_to < fov / 2:
-            # Лилит в 2x больше обычного врага
-            size = int(32000 / (dist + 0.1))
+            size = max(300, int(80000 / (dist + 0.1)))  # минимум 300px, коэф 80000
             x = int((angle_to + fov / 2) / fov * WIDTH) - size // 2
             y = HALF_HEIGHT - size // 2 + int(v_offset)
             ray_center = int((angle_to + fov / 2) / fov * NUM_RAYS)
@@ -261,12 +327,12 @@ def run_game(screen):
             max_depth = max(depths[r] for r in range(ray_start, ray_end + 1))
             if dist < max_depth:
                 # Красное свечение вокруг
-                glow_size = size + 20
+                glow_size = size + 40
                 glow = pygame.Surface((glow_size, glow_size), pygame.SRCALPHA)
                 pulse = int(60 + 40 * math.sin(lilit_pulse_timer * 2))
                 pygame.draw.ellipse(glow, (180, 0, 0, pulse),
                                     (0, 0, glow_size, glow_size))
-                screen.blit(glow, (x - 10, y - 10))
+                screen.blit(glow, (x - 20, y - 20))
                 sprite = pygame.transform.scale(lilith_sprite, (size, size))
                 screen.blit(sprite, (x, y))
 
@@ -276,7 +342,7 @@ def run_game(screen):
         if lilith is None or not lilith["alive"]:
             return
         dist = math.hypot(px - lilith["x"], py - lilith["y"])
-        if dist < 100 and not spear_unlocked:
+        if dist < 180 and not spear_unlocked:
             if keys[pygame.K_e]:
                 spear_unlocked = True
                 spear_anim_timer = 0
@@ -287,10 +353,9 @@ def run_game(screen):
         if lilith is None or not lilith["alive"] or spear_unlocked:
             return
         dist = math.hypot(px - lilith["x"], py - lilith["y"])
-        if dist < 100:
+        if dist < 180:
             font = pygame.font.SysFont("impact", 28)
             prompt = font.render("[E]  Взять копьё Лилит", True, (255, 200, 80))
-            # фон-плашка
             pad = 14
             bg = pygame.Surface((prompt.get_width() + pad * 2, prompt.get_height() + pad), pygame.SRCALPHA)
             bg.fill((0, 0, 0, 160))
@@ -305,17 +370,14 @@ def run_game(screen):
             return
         gun_w, gun_h = 280, 160
         scaled = pygame.transform.scale(spear_img, (gun_w, gun_h))
-        # лёгкое покачивание как у оружия
         bob_x = int(math.sin(bob_timer) * 6) if is_moving else 0
         bob_y = int(abs(math.sin(bob_timer)) * 5) if is_moving else 0
         screen.blit(scaled, (WIDTH - gun_w - 20 + bob_x, HEIGHT - gun_h - 10 + bob_y))
-        # кулдаун затемнение
         if spear_cooldown > 0:
             cd_surf = pygame.Surface((gun_w, gun_h), pygame.SRCALPHA)
             alpha = int(160 * spear_cooldown / 90)
             cd_surf.fill((0, 0, 0, alpha))
             screen.blit(cd_surf, (WIDTH - gun_w - 20 + bob_x, HEIGHT - gun_h - 10 + bob_y))
-        # Подсказка F
         font = pygame.font.SysFont("impact", 18)
         label = font.render("[F] Бросить копьё", True, (200, 180, 100))
         screen.blit(label, (WIDTH - label.get_width() - 10, HEIGHT - 25))
@@ -325,7 +387,7 @@ def run_game(screen):
         nonlocal spear_cooldown
         if not spear_unlocked or spear_cooldown > 0:
             return
-        spear_cooldown = 90   # кулдаун ~1.5 сек
+        spear_cooldown = 90
         bullets.append({
             "x": px,
             "y": py,
@@ -434,7 +496,7 @@ def run_game(screen):
         for p in particles[:]:
             p["x"] += p["vx"]
             p["y"] += p["vy"]
-            p["vy"] += 0.3   # гравитация
+            p["vy"] += 0.3
             p["life"] -= 1
             if p["life"] <= 0:
                 particles.remove(p)
@@ -445,46 +507,166 @@ def run_game(screen):
             pygame.draw.circle(surf, (*p["color"], alpha), (r, r), r)
             screen.blit(surf, (int(p["x"]) - r, int(p["y"]) - r))
 
+    def spear_explode(x, y):
+        """Взрыв копья — урон всем врагам в радиусе, куча частиц."""
+        EXPLOSION_RADIUS = 120
+        for enemy in enemies:
+            if enemy["alive"]:
+                dist = math.hypot(enemy["x"] - x, enemy["y"] - y)
+                if dist < EXPLOSION_RADIUS:
+                    dmg = int(120 * (1 - dist / EXPLOSION_RADIUS))
+                    enemy["hp"] -= dmg
+                    spawn_hit_particles(enemy)
+                    if enemy["hp"] <= 0:
+                        enemy["alive"] = False
+                        if random.random() < 0.3:
+                            medkits.append({"x": enemy["x"], "y": enemy["y"], "picked": False})
+
+        # Взрывные частицы — огонь + кровь
+        for _ in range(40):
+            vx = random.uniform(-5, 5)
+            vy = random.uniform(-6, 1)
+            color = random.choice([
+                (255, 80, 0), (255, 160, 0), (200, 0, 0),
+                (255, 220, 50), (180, 0, 0)
+            ])
+            r = random.randint(4, 10)
+            life = random.randint(20, 45)
+
+            dx = x - px
+            dy = y - py
+            dist = max(1, math.hypot(dx, dy))
+            angle_to = math.atan2(dy, dx) - angle
+            if -fov / 2 < angle_to < fov / 2:
+                screen_x = int((angle_to + fov / 2) / fov * WIDTH)
+                size_base = int(21000 / (dist + 0.1))
+                screen_y = HALF_HEIGHT - size_base // 2
+
+                particles.append({
+                    "x": float(screen_x + random.randint(-30, 30)),
+                    "y": float(screen_y + random.randint(0, max(1, size_base // 2))),
+                    "vx": vx,
+                    "vy": vy,
+                    "color": color,
+                    "r": r,
+                    "life": life,
+                    "max_life": life
+                })
+
     def update_bullets():
         for bullet in bullets[:]:
             bullet["x"] += bullet["speed"] * math.cos(bullet["angle"])
             bullet["y"] += bullet["speed"] * math.sin(bullet["angle"])
             bullet["life"] -= 1
+
             mx, my = int(bullet["x"] // TILE), int(bullet["y"] // TILE)
-            if not (0 <= my < len(world_map) and 0 <= mx < len(world_map[0])) \
-                    or world_map[my][mx] == "1" \
-                    or bullet["life"] <= 0:
-                bullets.remove(bullet)
+            hit_wall = not (0 <= my < len(world_map) and 0 <= mx < len(world_map[0])) \
+                       or world_map[my][mx] == "1"
+
+            # Копьё врезалось в стену — взрыв
+            if bullet.get("is_spear") and (hit_wall or bullet["life"] <= 0):
+                spear_explode(bullet["x"], bullet["y"])
+                if hit_sound:
+                    hit_sound.play()
+                if bullet in bullets:
+                    bullets.remove(bullet)
                 continue
 
-            for enemy in enemies:
-                if enemy["alive"]:
-                    hitbox = 35 if bullet.get("is_spear") else 20
-                    if math.hypot(enemy["x"] - bullet["x"], enemy["y"] - bullet["y"]) < hitbox:
-                        enemy["hp"] -= bullet["damage"]
-                        spawn_hit_particles(enemy)
-                        if hit_sound:
-                            hit_sound.play()
-                        if enemy["hp"] <= 0:
-                            enemy["alive"] = False
-                            if random.random() < 0.3:
-                                medkits.append({"x": enemy["x"], "y": enemy["y"], "picked": False})
-                        if bullet in bullets:
-                            bullets.remove(bullet)
-                        break
+            # Обычная пуля — убираем при попадании в стену
+            if hit_wall or bullet["life"] <= 0:
+                if bullet in bullets:
+                    bullets.remove(bullet)
+                continue
+
+            # Копьё пробивает ВСЕХ врагов (не break после первого)
+            if bullet.get("is_spear"):
+                for enemy in enemies:
+                    if enemy["alive"]:
+                        if math.hypot(enemy["x"] - bullet["x"], enemy["y"] - bullet["y"]) < 35:
+                            enemy["hp"] -= bullet["damage"]
+                            spawn_hit_particles(enemy)
+                            if hit_sound:
+                                hit_sound.play()
+                            if enemy["hp"] <= 0:
+                                enemy["alive"] = False
+                                if random.random() < 0.3:
+                                    medkits.append({"x": enemy["x"], "y": enemy["y"], "picked": False})
+            else:
+                # Обычная пуля — останавливается на первом враге
+                for enemy in enemies:
+                    if enemy["alive"]:
+                        if math.hypot(enemy["x"] - bullet["x"], enemy["y"] - bullet["y"]) < 20:
+                            enemy["hp"] -= bullet["damage"]
+                            spawn_hit_particles(enemy)
+                            if hit_sound:
+                                hit_sound.play()
+                            if enemy["hp"] <= 0:
+                                enemy["alive"] = False
+                                if random.random() < 0.3:
+                                    medkits.append({"x": enemy["x"], "y": enemy["y"], "picked": False})
+                            if bullet in bullets:
+                                bullets.remove(bullet)
+                            break
+
+    def update_enemy_bullets():
+        nonlocal player_hp
+        for bullet in enemy_bullets[:]:
+            bullet["x"] += bullet["speed"] * math.cos(bullet["angle"])
+            bullet["y"] += bullet["speed"] * math.sin(bullet["angle"])
+            bullet["life"] -= 1
+
+            mx, my = int(bullet["x"] // TILE), int(bullet["y"] // TILE)
+            hit_wall = not (0 <= my < len(world_map) and 0 <= mx < len(world_map[0])) \
+                       or world_map[my][mx] == "1"
+
+            if hit_wall or bullet["life"] <= 0:
+                enemy_bullets.remove(bullet)
+                continue
+
+            if math.hypot(bullet["x"] - px, bullet["y"] - py) < 20:
+                player_hp -= bullet["damage"]
+                enemy_bullets.remove(bullet)
+
+    def draw_enemy_bullets(depths):
+        for bullet in enemy_bullets:
+            dx = bullet["x"] - px
+            dy = bullet["y"] - py
+            dist = math.hypot(dx, dy)
+            angle_to = math.atan2(dy, dx) - angle
+            # нормализуем угол
+            while angle_to > math.pi:
+                angle_to -= 2 * math.pi
+            while angle_to < -math.pi:
+                angle_to += 2 * math.pi
+            if -fov / 2 < angle_to < fov / 2:
+                size = max(8, int(400 / (dist + 0.1)))
+                x = int((angle_to + fov / 2) / fov * WIDTH) - size // 2
+                y = HALF_HEIGHT - size // 2
+                ray = max(0, min(int((angle_to + fov / 2) / fov * NUM_RAYS), len(depths) - 1))
+                if dist < depths[ray]:
+                    btex = shooter_bullet_tex if bullet.get("variant", 0) == 0 else shooter_bullet_tex2
+                    sprite = pygame.transform.scale(btex, (size, size))
+                    screen.blit(sprite, (x, y))
 
     def draw_bullets(depths):
         for bullet in bullets:
+            if bullet.get("is_spear"):
+                continue  # копья рисует draw_spear_bullets
             dx = bullet["x"] - px
             dy = bullet["y"] - py
             dist = math.hypot(dx, dy)
             angle_to_bullet = math.atan2(dy, dx) - angle
+            # нормализуем угол
+            while angle_to_bullet > math.pi:
+                angle_to_bullet -= 2 * math.pi
+            while angle_to_bullet < -math.pi:
+                angle_to_bullet += 2 * math.pi
             if -fov / 2 < angle_to_bullet < fov / 2:
-                size = max(4, int(300 / (dist + 0.1)))
+                size = max(6, int(400 / (dist + 0.1)))
                 x = int((angle_to_bullet + fov / 2) / fov * WIDTH) - size // 2
                 y = HALF_HEIGHT - size // 2
-                ray = int(x / SCALE)
-                if 0 < ray < len(depths) and dist < depths[ray]:
+                ray = max(0, min(int((angle_to_bullet + fov / 2) / fov * NUM_RAYS), len(depths) - 1))
+                if dist < depths[ray]:
                     sprite = pygame.transform.scale(bullet_tex, (size, size))
                     screen.blit(sprite, (x, y))
 
@@ -529,8 +711,8 @@ def run_game(screen):
                     sys.exit()
                 load_level()
 
-    sky_color = (70, 90, 160)   # цвет неба, меняется с уровнем
-    floor_color = (50, 50, 50)  # цвет пола
+    sky_color = (70, 90, 160)
+    floor_color = (50, 50, 50)
 
     # --- Lilit atmosphere ---
     lilit_title_timer = 0
@@ -539,15 +721,15 @@ def run_game(screen):
     lilith = None
 
     # --- Копьё Лилит ---
-    spear_unlocked = False      # получено ли копьё
-    spear_cooldown = 0          # кулдаун броска
-    spear_anim_timer = 0        # не используется, резерв
+    spear_unlocked = False
+    spear_cooldown = 0
+    spear_anim_timer = 0
 
     load_level()
 
     running = True
     while running:
-        screen.fill((50, 50, 50))  # заливаем цветом пола — убирает чёрную полосу снизу
+        screen.fill((50, 50, 50))
 
         if player_hp <= 0:
             print("Ты умер")
@@ -557,16 +739,28 @@ def run_game(screen):
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
+            # Одиночный выстрел — только для не-авто оружий
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-                shoot()
+                if not current_weapon.get("auto", False):
+                    shoot()
             if event.type == pygame.MOUSEWHEEL:
                 current_weapon_index = (current_weapon_index + event.y) % len(weapons)
                 current_weapon = weapons[current_weapon_index]
+                fire_timer = 0
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_f:
                     throw_spear()
 
-        # Кулдаун копья
+        # Автострельба при зажатой кнопке мыши
+        if current_weapon.get("auto", False):
+            if pygame.mouse.get_pressed()[0]:
+                fire_timer += 1
+                if fire_timer >= current_weapon["fire_rate"]:
+                    shoot()
+                    fire_timer = 0
+            else:
+                fire_timer = 0
+
         if spear_cooldown > 0:
             spear_cooldown -= 1
 
@@ -608,7 +802,6 @@ def run_game(screen):
         if is_moving:
             bob_timer += BOB_SPEED
         else:
-            # плавно возвращаем к нулю
             bob_timer += BOB_SPEED * 0.5
         bob_offset = math.sin(bob_timer) * BOB_AMPLITUDE if is_moving else \
                      math.sin(bob_timer) * BOB_AMPLITUDE * max(0, 1 - abs(math.sin(bob_timer)))
@@ -616,7 +809,7 @@ def run_game(screen):
         # --- Lilit: пульсация неба ---
         if is_lilit:
             lilit_pulse_timer += 0.04
-            pulse = (math.sin(lilit_pulse_timer) * 0.5 + 0.5)  # 0..1
+            pulse = (math.sin(lilit_pulse_timer) * 0.5 + 0.5)
             r = int(sky_color[0] * (0.6 + 0.4 * pulse))
             g = int(sky_color[1])
             b = int(sky_color[2])
@@ -624,7 +817,6 @@ def run_game(screen):
         else:
             current_sky = sky_color
 
-        # Небо и пол со смещением (с запасом чтобы не было чёрных полос)
         pygame.draw.rect(screen, current_sky, (0, 0, WIDTH, HALF_HEIGHT + int(bob_offset) + 1))
         pygame.draw.rect(screen, floor_color, (0, HALF_HEIGHT + int(bob_offset), WIDTH, HALF_HEIGHT + BOB_AMPLITUDE + 1))
 
@@ -639,7 +831,9 @@ def run_game(screen):
         draw_bullets(depths)
         draw_spear_bullets(depths)
         update_bullets()
-        update_and_draw_particles()  # частички поверх всего 3D
+        update_enemy_bullets()
+        draw_enemy_bullets(depths)
+        update_and_draw_particles()
 
         if keys[pygame.K_TAB]:
             draw_minimap()
@@ -650,7 +844,6 @@ def run_game(screen):
                 gun_animating = False
                 gun_frame = 0
 
-        # Gun bob: пушка тоже покачивается
         gun_bob_x = math.sin(bob_timer) * 6 if is_moving else 0
         gun_bob_y = abs(math.sin(bob_timer)) * 5 if is_moving else 0
 
@@ -671,7 +864,6 @@ def run_game(screen):
 
         # --- Lilit спецэффекты поверх UI ---
         if is_lilit:
-            # Красный виньет по краям экрана
             vign_size = 120
             pulse_a = int(80 + 60 * math.sin(lilit_pulse_timer * 0.7))
             for side, rect in [
@@ -684,7 +876,6 @@ def run_game(screen):
                 vsurf.fill((120, 0, 0, pulse_a))
                 screen.blit(vsurf, (rect[0], rect[1]))
 
-            # Надпись LILIT при входе на уровень
             if lilit_title_timer > 0:
                 lilit_title_timer -= 1
                 alpha = min(255, lilit_title_timer * 4, (180 - lilit_title_timer) * 4 + 50)

@@ -32,7 +32,7 @@ weapons = [
     {
         "name": "Rifle",
         "damage": 1.95,
-        "fire_rate": 5,
+        "fire_rate": 2.65,
         "speed": 18,
         "frames": [
             "image/m240.png",
