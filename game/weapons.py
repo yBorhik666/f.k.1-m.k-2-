@@ -6,6 +6,8 @@ weapons = [
         "damage": 2.09,
         "fire_rate": 20,
         "speed": 12,
+        "minigun": False,
+        "ammo_type": "9mm",
         "frames": [
             "image/pistol_0.png",
             "image/pistol_1.png",
@@ -20,6 +22,8 @@ weapons = [
         "damage": 3.95,
         "fire_rate": 5,
         "speed": 18,
+        "minigun": False,
+        "ammo_type": "shells",
         "frames": [
             "image/shotgun_0.png",
             "image/shotgun_1.png",
@@ -32,8 +36,10 @@ weapons = [
     {
         "name": "Rifle",
         "damage": 1.95,
-        "fire_rate": 2.65,
+        "fire_rate": 6,
+        "minigun": True,
         "speed": 18,
+        "ammo_type": "762",
         "frames": [
             "image/m240.png",
             "image/m240_1.png",
@@ -51,11 +57,11 @@ weapons = [
         "damage": 35,
         "fire_rate": 40,
         "speed": 100,
+        "minigun": False,
+        "ammo_type": "cells",
         "frames": [
-            "image/shotgun_0.png",
-            "image/shotgun_1.png",
-            "image/shotgun_2.png",
-            "image/shotgun_3.png"
+            "image/tezer_0.png",
+            "image/tezer_1.png"
         ],
         "sound": "sound/tezer.wav",
         "auto": False
