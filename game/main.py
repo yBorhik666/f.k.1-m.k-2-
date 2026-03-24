@@ -1040,8 +1040,11 @@ def run_game(screen):
             gun_bob_y = abs(math.sin(bob_timer)) * 5 if is_moving else 0
             fi = current_weapon["frames"][int(gun_frame)] if gun_animating else current_weapon["frames"][0]
             gun = pygame.transform.scale(fi, (300, 200))
-            x_offset = 0 if current_weapon["name"] == "Rifle" else 60
-            screen.blit(gun, (WIDTH//2 - 150 + x_offset + int(gun_bob_x), HEIGHT - 200 + int(gun_bob_y)))
+            x_offset = 160 if current_weapon["name"] == "Rifle" else 60
+            if current_weapon["name"] == "Rifle":
+                screen.blit(gun, (WIDTH // 2 - 150 + x_offset + int(gun_bob_x), HEIGHT - 160 + int(gun_bob_y)))
+            else:
+                screen.blit(gun, (WIDTH//2 - 150 + x_offset + int(gun_bob_x), HEIGHT - 200 + int(gun_bob_y)))
         else:
             gun_bob_x = math.sin(bob_timer) * 6 if is_moving else 0
             gun_bob_y = abs(math.sin(bob_timer)) * 5 if is_moving else 0

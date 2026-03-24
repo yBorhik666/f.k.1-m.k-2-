@@ -42,12 +42,8 @@ weapons = [
         "ammo_type": "762",
         "frames": [
             "image/m240.png",
-            "image/m240_1.png",
-            "image/m240_2.png",
-            "image/m240_3.png",
-            "image/m240_4.png",
-            "image/m240_5.png",
-            "image/m240_6.png"
+            "image/m2.png",
+            "image/m24.png"
         ],
         "sound": "sound/m.wav",
         "auto": True
@@ -72,6 +68,10 @@ weapon_sounds = {}
 
 def load_weapon_textures():
     for weapon in weapons:
+        # Если уже загружено — не грузим повторно
+        if weapon["frames"] and not isinstance(weapon["frames"][0], str):
+            weapon_sounds[weapon["name"]] = pygame.mixer.Sound(weapon["sound"])
+            continue
         weapon["frames"] = [
             pygame.image.load(frame).convert_alpha()
             for frame in weapon["frames"]
