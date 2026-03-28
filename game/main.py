@@ -5,10 +5,10 @@ import sys
 import os
 from weapons import weapons, load_weapon_textures, weapon_sounds
 from level import levels
-from menu import run_menu
+from menu import run_menu, run_pause_menu, save_game, load_game
 
 
-def run_game(screen):
+def run_game(screen, load_state=None):
 
     WIDTH, HEIGHT = screen.get_size()
 
@@ -89,10 +89,9 @@ def run_game(screen):
     medkit_img = pygame.image.load("image/medik.png").convert_alpha()
     wall_tex   = pygame.image.load("image/wall.png").convert()
 
-    # Текстура двери — масштабируем до 64x64 чтобы избежать полосатости
+    # Текстура двери
     try:
         door_tex = pygame.image.load("image/door.png").convert()
-        door_tex = pygame.transform.scale(door_tex, (64, 64))
     except Exception:
         door_tex = pygame.Surface((64, 64))
         door_tex.fill((120, 60, 10))
@@ -100,15 +99,12 @@ def run_game(screen):
         pygame.draw.line(door_tex,   (80, 40, 5),   (32, 4), (32, 60), 2)
         pygame.draw.circle(door_tex, (200, 160, 0), (44, 32), 5)
 
-    DOOR_TEX_SIZE = 64  # фиксированный размер
-
     enemy_sprite         = pygame.image.load("image/eNemi.png").convert_alpha()
     shooter_sprite       = pygame.image.load("image/enemis.png").convert_alpha()
     shooter_sprite_shoot = pygame.image.load("image/enemis1.png").convert_alpha()
     shooter_bullet_tex   = pygame.image.load("image/enemis_bullet.png").convert_alpha()
     shooter_bullet_tex2  = pygame.image.load("image/enemis_bullet1.png").convert_alpha()
     lilith_sprite        = pygame.image.load("image/lilith.png").convert_alpha()
-    moloch_sprite        = pygame.image.load("image/moloch.png").convert_alpha()
     spear_img            = pygame.image.load("image/spear_of_lilith.png").convert_alpha()
     spear_frames = [
         pygame.image.load("image/peak_0.png").convert_alpha(),
@@ -118,6 +114,7 @@ def run_game(screen):
     bullet_tex    = pygame.image.load("image/bullet_0.png").convert_alpha()
     heal_sound    = pygame.mixer.Sound("sound/medik.wav")
     TEX_SIZE      = wall_tex.get_width()
+    DOOR_TEX_SIZE = door_tex.get_width()
 
     lilith = None
 
@@ -147,7 +144,10 @@ def run_game(screen):
 
     SPEAR_THROW_FRAMES  = 36
     spear_throw_timer   = 0
+    spear_throw_screen_x = 0
+    spear_throw_screen_y = 0
 
+    # ═══════════════════════════ ДВЕРИ ═══════════════════════════════════════
     DOOR_INTERACT_DIST = 90
 
     def get_nearby_door():
@@ -179,6 +179,7 @@ def run_game(screen):
         bx = WIDTH // 2 - bg.get_width() // 2
         screen.blit(bg,     (bx, HEIGHT - 90))
         screen.blit(prompt, (bx + pad, HEIGHT - 90 + pad // 2))
+    # ═════════════════════════════════════════════════════════════════════════
 
     def load_level():
         nonlocal world_map, MAX_ENEMIES, SPAWN_DELAY, px, py
@@ -253,6 +254,7 @@ def run_game(screen):
         px = 150
         py = 150
 
+    # ФИКС: is_wall теперь блокирует и закрытые двери "D"
     def is_wall(x, y):
         mx, my = int(x // TILE), int(y // TILE)
         if 0 <= my < len(world_map) and 0 <= mx < len(world_map[0]):
@@ -280,6 +282,7 @@ def run_game(screen):
                     })
                     break
 
+    # ФИКС: cast_walls рендерит двери отдельной текстурой
     def cast_walls(v_offset=0):
         ray_angle = angle - fov / 2
         depths = []
@@ -314,14 +317,10 @@ def run_game(screen):
                 proj_h = 21000 / depth
                 if hit_door:
                     tex = door_tex
-                    tex_w = door_tex.get_width()
-                    tex_h = door_tex.get_height()
                 else:
                     tex = wall_tex
-                    tex_w = TEX_SIZE
-                    tex_h = wall_tex.get_height()
-
-                # Фикс: используем реальные размеры текстуры
+                tex_w = tex.get_width()
+                tex_h = tex.get_height()
                 tex_x = int(tex_x_coord * tex_w / TILE)
                 tex_x = max(0, min(tex_x, tex_w - 1))
                 column = tex.subsurface(tex_x, 0, 1, tex_h)
@@ -455,6 +454,8 @@ def run_game(screen):
             screen.blit(bg, (bx, by))
             screen.blit(prompt, (bx + pad, by + pad // 2))
 
+    # ══════════════════════ МОЛОХ — ФИНАЛЬНЫЙ БОСС ═══════════════════════════
+
     def draw_moloch(depths, v_offset=0):
         if moloch is None or not moloch["alive"]:
             return
@@ -480,7 +481,7 @@ def run_game(screen):
                 pulse = int(80 + 50 * math.sin(moloch_pulse_timer * 3))
                 pygame.draw.ellipse(glow, (*glow_col, pulse), (0, 0, glow_size, glow_size))
                 screen.blit(glow, (x - 30, y - 30))
-                tinted = pygame.transform.scale(moloch_sprite, (size, size)).copy()
+                tinted = pygame.transform.scale(lilith_sprite, (size, size)).copy()
                 if phase >= 2:
                     tint = pygame.Surface((size, size), pygame.SRCALPHA)
                     tint.fill((180, 0, 0, 80) if phase == 2 else (120, 0, 180, 120))
@@ -506,10 +507,6 @@ def run_game(screen):
     def update_moloch():
         nonlocal player_hp
         if moloch is None or not moloch["alive"]:
-            return
-        # Проверка смерти
-        if moloch["hp"] <= 0:
-            moloch["alive"] = False
             return
         ratio = moloch["hp"] / moloch["max_hp"]
         moloch["phase"] = 1 if ratio > 0.66 else 2 if ratio > 0.33 else 3
@@ -553,18 +550,13 @@ def run_game(screen):
     def check_moloch_dead():
         if moloch is None or moloch["alive"]:
             return
-        # Ставим выход рядом с тем местом где умер Молох
-        mx = int(moloch["x"] // TILE)
-        my = int(moloch["y"] // TILE)
-        for dy in range(-3, 4):
-            for dx in range(-3, 4):
-                r, c = my + dy, mx + dx
-                if 0 <= r < len(world_map) and 0 <= c < len(world_map[r]):
-                    if world_map[r][c] == "0":
-                        row_list = list(world_map[r])
-                        row_list[c] = "E"
-                        world_map[r] = "".join(row_list)
-                        return
+        for row_i, row in enumerate(world_map):
+            for col_i, char in enumerate(row):
+                if char == "0" and col_i > len(world_map[0]) - 4:
+                    row_list = list(world_map[row_i])
+                    row_list[col_i] = "E"
+                    world_map[row_i] = "".join(row_list)
+                    return
 
     def draw_moloch_title():
         nonlocal moloch_title_timer
@@ -576,6 +568,8 @@ def run_game(screen):
         surf = font.render("M O L O C H", True, (255, 60, 0))
         surf.set_alpha(max(0, alpha))
         screen.blit(surf, surf.get_rect(center=(WIDTH // 2, HEIGHT // 2)))
+
+    # ═════════════════════════════════════════════════════════════════════════
 
     def draw_spear():
         if not spear_unlocked:
@@ -733,9 +727,26 @@ def run_game(screen):
         if atype:
             ammo[atype] -= 1
         weapon_sounds[current_weapon["name"]].play()
-        bullets.append({"x": px, "y": py, "angle": angle,
-                        "speed": current_weapon["speed"],
-                        "life": 60, "damage": current_weapon["damage"]})
+
+        if current_weapon["name"] == "Shotgun":
+            # Дробовик — 7 дробин с разбросом
+            PELLETS = 7
+            SPREAD  = 0.12   # суммарный угол разброса в радианах
+            dmg_per_pellet = current_weapon["damage"] / PELLETS
+            for i in range(PELLETS):
+                offset = (i - (PELLETS - 1) / 2) * (SPREAD / (PELLETS - 1))
+                bullets.append({
+                    "x": px, "y": py,
+                    "angle": angle + offset + random.uniform(-0.02, 0.02),
+                    "speed": current_weapon["speed"],
+                    "life":  35,   # дробь летит недалеко
+                    "damage": dmg_per_pellet,
+                })
+        else:
+            bullets.append({"x": px, "y": py, "angle": angle,
+                            "speed": current_weapon["speed"],
+                            "life": 60, "damage": current_weapon["damage"]})
+
         gun_animating = True
         gun_frame = 0
 
@@ -784,6 +795,7 @@ def run_game(screen):
                             medkits.append({"x": enemy["x"], "y": enemy["y"], "picked": False})
                         if random.random() < 0.5:
                             spawn_ammo_pickup(enemy["x"], enemy["y"])
+        # Урон Молоху от взрыва копья
         if moloch and moloch["alive"]:
             dist = math.hypot(moloch["x"] - x, moloch["y"] - y)
             if dist < EXPLOSION_RADIUS:
@@ -814,6 +826,7 @@ def run_game(screen):
             bullet["y"] += bullet["speed"] * math.sin(bullet["angle"])
             bullet["life"] -= 1
             mx, my = int(bullet["x"] // TILE), int(bullet["y"] // TILE)
+            # ФИКС: пули блокируются и дверями "D"
             hit_wall = (not (0 <= my < len(world_map) and 0 <= mx < len(world_map[0]))
                         or world_map[my][mx] in ("1", "D"))
 
@@ -827,6 +840,7 @@ def run_game(screen):
                 if bullet in bullets: bullets.remove(bullet)
                 continue
 
+            # Урон Молоху от обычных пуль
             if moloch and moloch["alive"]:
                 if math.hypot(moloch["x"] - bullet["x"], moloch["y"] - bullet["y"]) < 50:
                     moloch["hp"] -= bullet["damage"]; stat_damage += bullet["damage"]
@@ -869,6 +883,7 @@ def run_game(screen):
             bullet["y"] += bullet["speed"] * math.sin(bullet["angle"])
             bullet["life"] -= 1
             mx, my = int(bullet["x"] // TILE), int(bullet["y"] // TILE)
+            # ФИКС: вражеские пули тоже блокируются дверями
             hit_wall = (not (0 <= my < len(world_map) and 0 <= mx < len(world_map[0]))
                         or world_map[my][mx] in ("1", "D"))
             if hit_wall or bullet["life"] <= 0:
@@ -946,7 +961,12 @@ def run_game(screen):
 
     def draw_minimap():
         scale = 15
-        surf = pygame.Surface((len(world_map[0]) * scale, len(world_map) * scale))
+        map_w = len(world_map[0]) * scale
+        map_h = len(world_map) * scale
+        MAP_X, MAP_Y = 20, 20  # позиция карты на экране
+
+        # --- Карта ---
+        surf = pygame.Surface((map_w, map_h))
         surf.set_alpha(200); surf.fill((30, 30, 30))
         for row_i, row in enumerate(world_map):
             for col_i, char in enumerate(row):
@@ -954,12 +974,85 @@ def run_game(screen):
                 if   char == "1": pygame.draw.rect(surf, (200, 200, 200), rect)
                 elif char == "D": pygame.draw.rect(surf, (160, 100, 20),  rect)
                 elif char == "E": pygame.draw.rect(surf, (0, 255, 0),     rect)
-        pygame.draw.circle(surf, (255, 0, 0), (int(px // TILE * scale), int(py // TILE * scale)), 4)
+
+        # Враги — жёлтые точки
         for enemy in enemies:
             if enemy["alive"]:
                 pygame.draw.circle(surf, (255, 255, 0),
-                                   (int(enemy["x"] // TILE * scale), int(enemy["y"] // TILE * scale)), 3)
-        screen.blit(surf, (20, 20))
+                                   (int(enemy["x"] // TILE * scale),
+                                    int(enemy["y"] // TILE * scale)), 3)
+
+        # Молох — фиолетовая точка
+        if moloch and moloch["alive"]:
+            pygame.draw.circle(surf, (200, 0, 255),
+                               (int(moloch["x"] // TILE * scale),
+                                int(moloch["y"] // TILE * scale)), 5)
+
+        # Игрок — красный кружок
+        pl_sx = int(px // TILE * scale)
+        pl_sy = int(py // TILE * scale)
+        pygame.draw.circle(surf, (255, 0, 0), (pl_sx, pl_sy), 4)
+
+        # Стрелка направления взгляда
+        arrow_len = 10
+        ax = int(pl_sx + math.cos(angle) * arrow_len)
+        ay = int(pl_sy + math.sin(angle) * arrow_len)
+        pygame.draw.line(surf, (255, 80, 80), (pl_sx, pl_sy), (ax, ay), 2)
+
+        # Конус обзора (FOV)
+        fov_len = 14
+        for side in (-1, 1):
+            fx = int(pl_sx + math.cos(angle + side * fov / 2) * fov_len)
+            fy = int(pl_sy + math.sin(angle + side * fov / 2) * fov_len)
+            pygame.draw.line(surf, (255, 180, 0, 120), (pl_sx, pl_sy), (fx, fy), 1)
+
+        screen.blit(surf, (MAP_X, MAP_Y))
+
+        # Рамка карты
+        pygame.draw.rect(screen, (120, 120, 120), (MAP_X - 1, MAP_Y - 1, map_w + 2, map_h + 2), 1)
+
+        # --- Координаты игрока под картой ---
+        font_c = pygame.font.SysFont("impact", 16)
+        tile_x = int(px // TILE)
+        tile_y = int(py // TILE)
+        coord_surf = font_c.render(f"X:{tile_x}  Y:{tile_y}", True, (180, 220, 180))
+        screen.blit(coord_surf, (MAP_X, MAP_Y + map_h + 4))
+
+        # --- Компас справа от карты ---
+        compass_x = MAP_X + map_w + 18
+        compass_y = MAP_Y + 40
+        compass_r = 26
+
+        # Фон компаса
+        comp_surf = pygame.Surface((compass_r * 2 + 4, compass_r * 2 + 4), pygame.SRCALPHA)
+        pygame.draw.circle(comp_surf, (20, 20, 20, 200), (compass_r + 2, compass_r + 2), compass_r)
+        pygame.draw.circle(comp_surf, (140, 140, 140), (compass_r + 2, compass_r + 2), compass_r, 1)
+        screen.blit(comp_surf, (compass_x - compass_r - 2, compass_y - compass_r - 2))
+
+        # Стороны света (фиксированные, не вращаются)
+        font_dir = pygame.font.SysFont("impact", 13)
+        for label, dx_d, dy_d, col in [
+            ("С", 0, -1, (255, 80, 80)),
+            ("Ю", 0,  1, (180, 180, 180)),
+            ("З", -1, 0, (180, 180, 180)),
+            ("В",  1, 0, (180, 180, 180)),
+        ]:
+            lx = compass_x + int(dx_d * (compass_r - 8))
+            ly = compass_y + int(dy_d * (compass_r - 8))
+            ls = font_dir.render(label, True, col)
+            screen.blit(ls, (lx - ls.get_width() // 2, ly - ls.get_height() // 2))
+
+        # Стрелка компаса — вращается с игроком (указывает на север)
+        needle_len = compass_r - 6
+        # Красный конец — север (угол = -pi/2 - angle, т.к. 0 = восток)
+        north_angle = -math.pi / 2 - angle
+        nx1 = compass_x + int(math.cos(north_angle) * needle_len)
+        ny1 = compass_y + int(math.sin(north_angle) * needle_len)
+        nx2 = compass_x + int(math.cos(north_angle + math.pi) * (needle_len // 2))
+        ny2 = compass_y + int(math.sin(north_angle + math.pi) * (needle_len // 2))
+        pygame.draw.line(screen, (255, 50, 50), (compass_x, compass_y), (nx1, ny1), 2)
+        pygame.draw.line(screen, (200, 200, 200), (compass_x, compass_y), (nx2, ny2), 2)
+        pygame.draw.circle(screen, (255, 255, 255), (compass_x, compass_y), 3)
 
     def draw_level_stats(completed_level):
         pygame.mouse.set_visible(True); pygame.event.set_grab(False)
@@ -1024,7 +1117,7 @@ def run_game(screen):
         pygame.mouse.set_visible(False); pygame.event.set_grab(True)
 
     def check_level_exit():
-        nonlocal LEVEL, spear_unlocked
+        nonlocal LEVEL
         mx, my = int(px // TILE), int(py // TILE)
         if 0 <= my < len(world_map) and 0 <= mx < len(world_map[0]):
             if world_map[my][mx] == "E":
@@ -1034,9 +1127,7 @@ def run_game(screen):
                     print("Ты прошёл игру!")
                     pygame.quit(); sys.exit()
                 draw_level_stats(completed)
-                _spear_save = spear_unlocked
                 load_level()
-                spear_unlocked = _spear_save
 
     def draw_death_screen():
         ov = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA); ov.fill((0, 0, 0, 180))
@@ -1056,82 +1147,23 @@ def run_game(screen):
                     if event.key == pygame.K_r: waiting = False
                     if event.key == pygame.K_ESCAPE: pygame.quit(); sys.exit()
 
-    # ══════════════════════ МЕНЮ ПАУЗЫ (ESC) ═════════════════════════════════
-    def draw_pause_menu():
-        """Меню паузы — возвращает 'resume', 'menu' или 'quit'"""
-        pygame.mouse.set_visible(True)
-        pygame.event.set_grab(False)
-
-        font_title = pygame.font.SysFont("impact", 72)
-        font_btn   = pygame.font.SysFont("arial", 36, bold=True)
-
-        from menu import Button as MenuButton
-
-        btn_resume = MenuButton("▶  ПРОДОЛЖИТЬ", (WIDTH // 2, HEIGHT // 2 - 40),  font_btn, width=340, height=58)
-        btn_menu   = MenuButton("⌂  ГЛАВНОЕ МЕНЮ", (WIDTH // 2, HEIGHT // 2 + 40), font_btn, width=340, height=58)
-        btn_quit   = MenuButton("✕  ВЫХОД",        (WIDTH // 2, HEIGHT // 2 + 130), font_btn, width=340, height=58)
-
-        # Снимок текущего кадра как фон
-        bg_snap = screen.copy()
-
-        clock_p = pygame.time.Clock()
-        while True:
-            mouse = pygame.mouse.get_pos()
-
-            # Затемнённый фон
-            screen.blit(bg_snap, (0, 0))
-            overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
-            overlay.fill((0, 0, 0, 170))
-            screen.blit(overlay, (0, 0))
-
-            # Панель
-            panel_w, panel_h = 420, 320
-            panel = pygame.Surface((panel_w, panel_h), pygame.SRCALPHA)
-            panel.fill((15, 5, 0, 220))
-            px_p = WIDTH // 2 - panel_w // 2
-            py_p = HEIGHT // 2 - panel_h // 2 - 20
-            screen.blit(panel, (px_p, py_p))
-            pygame.draw.rect(screen, (200, 80, 0), (px_p, py_p, panel_w, panel_h), 2, border_radius=10)
-
-            # Заголовок
-            title = font_title.render("ПАУЗА", True, (255, 120, 0))
-            screen.blit(title, title.get_rect(center=(WIDTH // 2, py_p + 50)))
-            pygame.draw.line(screen, (180, 60, 0),
-                             (px_p + 30, py_p + 85), (px_p + panel_w - 30, py_p + 85), 1)
-
-            for btn in (btn_resume, btn_menu, btn_quit):
-                btn.update(mouse)
-                btn.draw(screen)
-
-            for event in pygame.event.get():
-                if event.type == pygame.QUIT:
-                    pygame.quit(); sys.exit()
-                if event.type == pygame.KEYDOWN:
-                    if event.key == pygame.K_ESCAPE:
-                        pygame.mouse.set_visible(False)
-                        pygame.event.set_grab(True)
-                        return "resume"
-                if event.type == pygame.MOUSEBUTTONDOWN:
-                    if btn_resume.is_clicked(mouse):
-                        pygame.mouse.set_visible(False)
-                        pygame.event.set_grab(True)
-                        return "resume"
-                    if btn_menu.is_clicked(mouse):
-                        return "menu"
-                    if btn_quit.is_clicked(mouse):
-                        pygame.quit(); sys.exit()
-
-            pygame.display.flip()
-            clock_p.tick(60)
-    # ═════════════════════════════════════════════════════════════════════════
-
     sky_color = (70, 90, 160); floor_color = (50, 50, 50)
     lilit_title_timer = 0; lilit_pulse_timer = 0.0; is_lilit = False; lilith = None
     moloch = None; is_moloch = False; moloch_title_timer = 0; moloch_pulse_timer = 0.0
 
     load_level()
 
-    running = True
+    running = True  # ИСПРАВЛЕНО: переменная была пропущена
+
+    # Применяем загруженное сохранение если есть
+    if load_state:
+        player_hp      = load_state.get("player_hp", 100)
+        LEVEL          = load_state.get("level", 1)
+        ammo["9mm"]    = load_state.get("ammo_9mm",    60)
+        ammo["shells"] = load_state.get("ammo_shells",  20)
+        ammo["762"]    = load_state.get("ammo_762",    120)
+        ammo["cells"]  = load_state.get("ammo_cells",   10)
+        load_level()   # перезагружаем карту нужного уровня
     while running:
         screen.fill((50, 50, 50))
 
@@ -1140,9 +1172,7 @@ def run_game(screen):
             draw_death_screen()
             player_hp = 100; LEVEL = 1
             ammo["9mm"] = 60; ammo["shells"] = 20; ammo["762"] = 120; ammo["cells"] = 10
-            no_ammo_timer = 0
-            load_level()
-            spear_unlocked = False
+            no_ammo_timer = 0; load_level()
             pygame.mouse.set_visible(False); pygame.event.set_grab(True)
             continue
 
@@ -1162,11 +1192,19 @@ def run_game(screen):
                     door = get_nearby_door()
                     if door:
                         open_door(*door)
-                # ── Пауза по ESC ──
                 if event.key == pygame.K_ESCAPE:
-                    result = draw_pause_menu()
+                    def get_save_state():
+                        return {
+                            "player_hp":   player_hp,
+                            "level":       LEVEL,
+                            "ammo_9mm":    ammo["9mm"],
+                            "ammo_shells": ammo["shells"],
+                            "ammo_762":    ammo["762"],
+                            "ammo_cells":  ammo["cells"],
+                        }
+                    result = run_pause_menu(screen, game_state_getter=get_save_state)
                     if result == "menu":
-                        return  # возврат в главное меню
+                        return
 
         if current_weapon.get("auto", False):
             is_minigun = current_weapon.get("minigun", False)
@@ -1298,15 +1336,16 @@ def run_game(screen):
             na_surf.set_alpha(min(255, no_ammo_timer * 6))
             screen.blit(na_surf, (WIDTH // 2 - na_surf.get_width() // 2, HEIGHT // 2 - 80))
 
+        # Подсказка двери приоритетнее Лилит
         if get_nearby_door() is not None:
             draw_door_prompt()
         else:
             check_lilith_interact()
             draw_lilith_prompt()
 
-        update_medkits()
-        draw_medkits(depths, bob_offset)
         check_level_exit()
+        draw_medkits(depths, bob_offset)
+        update_medkits()
 
         if is_lilit:
             vign_size = 120
@@ -1355,7 +1394,8 @@ if __name__ == "__main__":
     screen = pygame.display.set_mode((WIDTH, HEIGHT))
     pygame.display.set_caption("not DOOM THE KILL FYRRE")
     while True:
-        if run_menu(screen):
-            run_game(screen)
-        else:
+        result = run_menu(screen)
+        if not result:
             break
+        mode, saved_state = result
+        run_game(screen, load_state=saved_state if mode == "load" else None)

@@ -28,7 +28,8 @@ weapons = [
             "image/shotgun_0.png",
             "image/shotgun_1.png",
             "image/shotgun_2.png",
-            "image/shotgun_3.png"
+            "image/shotgun_3.png",
+            "image/shotgun_4.png"
         ],
         "sound": "sound/shotgun.wav",
         "auto": False
