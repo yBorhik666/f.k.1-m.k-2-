@@ -195,7 +195,7 @@ def run_game(screen, load_state=None):
         moloch = None
         is_moloch = False
         moloch_title_timer = 0
-        spear_unlocked = False
+        # spear_unlocked намеренно НЕ сбрасывается — копьё сохраняется между уровнями
         spear_cooldown = 0
         spear_anim_timer = 0
         stat_kills = 0
@@ -246,6 +246,8 @@ def run_game(screen, load_state=None):
                             "shoot_timer": 60,
                             "move_timer": 0,
                             "move_angle": 0.0,
+                            "spawn_col": col_i,
+                            "spawn_row": row_i,
                         }
                         row_list = list(world_map[row_i])
                         row_list[col_i] = "0"
@@ -257,7 +259,7 @@ def run_game(screen, load_state=None):
     # ФИКС: is_wall теперь блокирует и закрытые двери "D"
     def is_wall(x, y):
         mx, my = int(x // TILE), int(y // TILE)
-        if 0 <= my < len(world_map) and 0 <= mx < len(world_map[0]):
+        if 0 <= my < len(world_map) and 0 <= mx < len(world_map[my]):
             c = world_map[my][mx]
             return c == "1" or c == "D"
         return True
@@ -323,9 +325,13 @@ def run_game(screen, load_state=None):
                 tex_h = tex.get_height()
                 tex_x = int(tex_x_coord * tex_w / TILE)
                 tex_x = max(0, min(tex_x, tex_w - 1))
-                column = tex.subsurface(tex_x, 0, 1, tex_h)
-                column = pygame.transform.scale(column, (int(SCALE) + 1, int(proj_h)))
-                screen.blit(column, (int(x_pos), HALF_HEIGHT - proj_h // 2 + int(v_offset)))
+                col_w = max(1, int(SCALE) + 1)
+                col_h = max(1, int(proj_h))
+                column = pygame.Surface((1, tex_h))
+                for row in range(tex_h):
+                    column.set_at((0, row), tex.get_at((tex_x, row)))
+                column = pygame.transform.scale(column, (col_w, col_h))
+                screen.blit(column, (int(x_pos), HALF_HEIGHT - col_h // 2 + int(v_offset)))
                 depths.append(depth)
             else:
                 depths.append(MAX_DEPTH)
@@ -508,6 +514,10 @@ def run_game(screen, load_state=None):
         nonlocal player_hp
         if moloch is None or not moloch["alive"]:
             return
+        # Проверяем смерть
+        if moloch["hp"] <= 0:
+            moloch["alive"] = False
+            return
         ratio = moloch["hp"] / moloch["max_hp"]
         moloch["phase"] = 1 if ratio > 0.66 else 2 if ratio > 0.33 else 3
         phase = moloch["phase"]
@@ -550,13 +560,23 @@ def run_game(screen, load_state=None):
     def check_moloch_dead():
         if moloch is None or moloch["alive"]:
             return
-        for row_i, row in enumerate(world_map):
-            for col_i, char in enumerate(row):
-                if char == "0" and col_i > len(world_map[0]) - 4:
-                    row_list = list(world_map[row_i])
-                    row_list[col_i] = "E"
-                    world_map[row_i] = "".join(row_list)
-                    return
+        row_i = moloch.get("spawn_row")
+        col_i = moloch.get("spawn_col")
+        print(f"[DEBUG] Молох мёртв. spawn_row={row_i}, spawn_col={col_i}")
+        print(f"[DEBUG] HP молоха: {moloch['hp']}")
+        if row_i is not None and col_i is not None:
+            if 0 <= row_i < len(world_map) and 0 <= col_i < len(world_map[row_i]):
+                print(f"[DEBUG] Клетка [{row_i}][{col_i}] = '{world_map[row_i][col_i]}'")
+                row_list = list(world_map[row_i])
+                row_list[col_i] = "E"
+                world_map[row_i] = "".join(row_list)
+                print(f"[DEBUG] Выход E поставлен на [{row_i}][{col_i}]")
+                moloch["spawn_row"] = None
+                moloch["spawn_col"] = None
+            else:
+                print(f"[DEBUG] Координаты вне карты!")
+        else:
+            print(f"[DEBUG] spawn_row/col = None, выход не поставлен!")
 
     def draw_moloch_title():
         nonlocal moloch_title_timer
@@ -827,7 +847,7 @@ def run_game(screen, load_state=None):
             bullet["life"] -= 1
             mx, my = int(bullet["x"] // TILE), int(bullet["y"] // TILE)
             # ФИКС: пули блокируются и дверями "D"
-            hit_wall = (not (0 <= my < len(world_map) and 0 <= mx < len(world_map[0]))
+            hit_wall = (not (0 <= my < len(world_map) and 0 <= mx < len(world_map[my]))
                         or world_map[my][mx] in ("1", "D"))
 
             if bullet.get("is_spear") and (hit_wall or bullet["life"] <= 0):
@@ -884,7 +904,7 @@ def run_game(screen, load_state=None):
             bullet["life"] -= 1
             mx, my = int(bullet["x"] // TILE), int(bullet["y"] // TILE)
             # ФИКС: вражеские пули тоже блокируются дверями
-            hit_wall = (not (0 <= my < len(world_map) and 0 <= mx < len(world_map[0]))
+            hit_wall = (not (0 <= my < len(world_map) and 0 <= mx < len(world_map[my]))
                         or world_map[my][mx] in ("1", "D"))
             if hit_wall or bullet["life"] <= 0:
                 enemy_bullets.remove(bullet); continue

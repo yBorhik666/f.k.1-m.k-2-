@@ -32,7 +32,6 @@ SAVE_FILE = "savegame.json"
 # ═══════════════════════ СОХРАНЕНИЕ / ЗАГРУЗКА ═══════════════════════════════
 
 def save_game(state: dict):
-    """Сохраняет состояние игры в JSON файл."""
     try:
         with open(SAVE_FILE, "w", encoding="utf-8") as f:
             json.dump(state, f, indent=2)
@@ -44,7 +43,6 @@ def save_game(state: dict):
 
 
 def load_game() -> dict | None:
-    """Загружает состояние игры из JSON. Возвращает dict или None."""
     if not os.path.exists(SAVE_FILE):
         return None
     try:
@@ -230,13 +228,6 @@ def run_settings(screen, bg):
 # ═══════════════════ ПОДМЕНЮ ВЫБОРА: НОВАЯ ИГРА / ЗАГРУЗИТЬ ══════════════════
 
 def run_start_submenu(screen, bg):
-    """
-    Показывается после нажатия СТАРТ.
-    Возвращает:
-      "new"  — начать новую игру
-      "load" — загрузить сохранение (только если файл есть)
-      None   — назад
-    """
     clock = pygame.time.Clock()
     WIDTH, HEIGHT = screen.get_size()
     font_title = pygame.font.SysFont("impact", 60)
@@ -244,9 +235,9 @@ def run_start_submenu(screen, bg):
     font_hint  = pygame.font.SysFont("arial",  20)
 
     cy = HEIGHT // 2
-    new_btn  = Button("🗡  НОВАЯ ИГРА",         (WIDTH//2, cy - 60),  font_btn, width=340, height=58)
-    load_btn = Button("📂  ЗАГРУЗИТЬ",           (WIDTH//2, cy + 20),  font_btn, width=340, height=58)
-    back_btn = Button("← НАЗАД",                (WIDTH//2, cy + 110), font_btn, width=260, height=52)
+    new_btn  = Button("🗡  НОВАЯ ИГРА",  (WIDTH//2, cy - 60),  font_btn, width=340, height=58)
+    load_btn = Button("📂  ЗАГРУЗИТЬ",   (WIDTH//2, cy + 20),  font_btn, width=340, height=58)
+    back_btn = Button("← НАЗАД",        (WIDTH//2, cy + 110), font_btn, width=260, height=52)
 
     save_exists = has_save()
     save_info   = ""
@@ -260,13 +251,9 @@ def run_start_submenu(screen, bg):
     while True:
         mouse = pygame.mouse.get_pos()
         screen.blit(bg, (0, 0))
-
-        # Затемнение
         ov = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
         ov.fill((0, 0, 0, 200))
         screen.blit(ov, (0, 0))
-
-        # Панель
         pw, ph = 420, 320
         panel = pygame.Surface((pw, ph), pygame.SRCALPHA)
         panel.fill((15, 5, 0, 230))
@@ -274,15 +261,10 @@ def run_start_submenu(screen, bg):
         py_p = HEIGHT//2 - ph//2 - 10
         screen.blit(panel, (px_p, py_p))
         pygame.draw.rect(screen, (200, 80, 0), (px_p, py_p, pw, ph), 2, border_radius=10)
-
-        # Заголовок
         title = font_title.render("НАЧАТЬ ИГРУ", True, (255, 120, 0))
         screen.blit(title, title.get_rect(center=(WIDTH//2, py_p + 44)))
         pygame.draw.line(screen, (180, 60, 0), (px_p+30, py_p+80), (px_p+pw-30, py_p+80), 1)
-
-        # Кнопка загрузки — серая если нет сохранения
         if not save_exists:
-            # Рисуем затемнённую версию
             grey_surf = pygame.Surface((340, 58), pygame.SRCALPHA)
             grey_surf.fill((40, 40, 40, 180))
             screen.blit(grey_surf, (WIDTH//2 - 170, cy + 20 - 29))
@@ -295,10 +277,8 @@ def run_start_submenu(screen, bg):
             if save_info:
                 info_s = font_hint.render(save_info, True, (160, 200, 160))
                 screen.blit(info_s, info_s.get_rect(center=(WIDTH//2, cy + 58)))
-
         new_btn.update(mouse);  new_btn.draw(screen)
         back_btn.update(mouse); back_btn.draw(screen)
-
         for event in pygame.event.get():
             if event.type == pygame.QUIT: pygame.quit(); sys.exit()
             if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE: return None
@@ -306,7 +286,6 @@ def run_start_submenu(screen, bg):
                 if new_btn.is_clicked(mouse):  return "new"
                 if save_exists and load_btn.is_clicked(mouse): return "load"
                 if back_btn.is_clicked(mouse): return None
-
         pygame.display.flip()
         clock.tick(60)
 
@@ -316,7 +295,6 @@ def run_start_submenu(screen, bg):
 def run_pause_menu(screen, game_state_getter=None):
     """
     Меню паузы внутри игры.
-    game_state_getter — callable() возвращающий dict для сохранения, или None.
     Возвращает: "resume" | "menu" | "quit"
     """
     pygame.mouse.set_visible(True)
@@ -331,13 +309,18 @@ def run_pause_menu(screen, game_state_getter=None):
     bg_snap = screen.copy()
 
     cy = HEIGHT // 2
-    resume_btn = Button("▶  ПРОДОЛЖИТЬ",  (WIDTH//2, cy - 80),  font_btn, width=340, height=55)
-    save_btn   = Button("💾  СОХРАНИТЬ",  (WIDTH//2, cy - 10),  font_btn, width=340, height=55)
-    menu_btn   = Button("⌂  ГЛАВНОЕ МЕНЮ",(WIDTH//2, cy + 60),  font_btn, width=340, height=55)
-    quit_btn   = Button("✕  ВЫХОД",       (WIDTH//2, cy + 140), font_btn, width=340, height=55)
+    # ── Кнопки паузы (добавлена ⚙ НАСТРОЙКИ) ──
+    resume_btn   = Button("▶  ПРОДОЛЖИТЬ",  (WIDTH//2, cy - 100), font_btn, width=340, height=55)
+    save_btn     = Button("💾  СОХРАНИТЬ",  (WIDTH//2, cy -  30), font_btn, width=340, height=55)
+    settings_btn = Button("⚙  НАСТРОЙКИ",  (WIDTH//2, cy +  40), font_btn, width=340, height=55)
+    menu_btn     = Button("⌂  ГЛАВНОЕ МЕНЮ",(WIDTH//2, cy + 110), font_btn, width=340, height=55)
+    quit_btn     = Button("✕  ВЫХОД",       (WIDTH//2, cy + 180), font_btn, width=340, height=55)
 
-    save_msg       = ""   # сообщение после сохранения
+    save_msg       = ""
     save_msg_timer = 0
+
+    # Панель растянута под пять кнопок
+    pw, ph = 420, 440
 
     while True:
         mouse = pygame.mouse.get_pos()
@@ -347,8 +330,6 @@ def run_pause_menu(screen, game_state_getter=None):
         ov.fill((0, 0, 0, 170))
         screen.blit(ov, (0, 0))
 
-        # Панель
-        pw, ph = 420, 380
         panel = pygame.Surface((pw, ph), pygame.SRCALPHA)
         panel.fill((15, 5, 0, 220))
         px_p = WIDTH//2 - pw//2
@@ -360,16 +341,15 @@ def run_pause_menu(screen, game_state_getter=None):
         screen.blit(title, title.get_rect(center=(WIDTH//2, py_p + 48)))
         pygame.draw.line(screen, (180,60,0),(px_p+30,py_p+86),(px_p+pw-30,py_p+86),1)
 
-        for btn in (resume_btn, save_btn, menu_btn, quit_btn):
+        for btn in (resume_btn, save_btn, settings_btn, menu_btn, quit_btn):
             btn.update(mouse); btn.draw(screen)
 
-        # Сообщение о сохранении
         if save_msg_timer > 0:
             save_msg_timer -= 1
             alpha = min(255, save_msg_timer * 8)
             msg_s = font_hint.render(save_msg, True, (100, 255, 100))
             msg_s.set_alpha(alpha)
-            screen.blit(msg_s, msg_s.get_rect(center=(WIDTH//2, cy + 185)))
+            screen.blit(msg_s, msg_s.get_rect(center=(WIDTH//2, cy + 230)))
 
         for event in pygame.event.get():
             if event.type == pygame.QUIT: pygame.quit(); sys.exit()
@@ -392,6 +372,9 @@ def run_pause_menu(screen, game_state_getter=None):
                     else:
                         save_msg       = "✗ Нет данных для сохранения"
                         save_msg_timer = 180
+                if settings_btn.is_clicked(mouse):
+                    # Открываем настройки прямо поверх паузы
+                    run_settings(screen, bg_snap)
                 if menu_btn.is_clicked(mouse):
                     return "menu"
                 if quit_btn.is_clicked(mouse):
@@ -407,7 +390,7 @@ def run_menu(screen):
     """
     Возвращает:
       ("new",  None)   — начать новую игру
-      ("load", state)  — загрузить сохранение, state = dict
+      ("load", state)  — загрузить сохранение
       False            — выход
     """
     WIDTH, HEIGHT = screen.get_size()
