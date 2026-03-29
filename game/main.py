@@ -105,6 +105,7 @@ def run_game(screen, load_state=None):
     shooter_bullet_tex   = pygame.image.load("image/enemis_bullet.png").convert_alpha()
     shooter_bullet_tex2  = pygame.image.load("image/enemis_bullet1.png").convert_alpha()
     lilith_sprite        = pygame.image.load("image/lilith.png").convert_alpha()
+    moloch_sprite = pygame.image.load("image/moloch.png").convert_alpha()
     spear_img            = pygame.image.load("image/spear_of_lilith.png").convert_alpha()
     spear_frames = [
         pygame.image.load("image/peak_0.png").convert_alpha(),
@@ -487,7 +488,7 @@ def run_game(screen, load_state=None):
                 pulse = int(80 + 50 * math.sin(moloch_pulse_timer * 3))
                 pygame.draw.ellipse(glow, (*glow_col, pulse), (0, 0, glow_size, glow_size))
                 screen.blit(glow, (x - 30, y - 30))
-                tinted = pygame.transform.scale(lilith_sprite, (size, size)).copy()
+                tinted = pygame.transform.scale(moloch_sprite, (size, size)).copy()
                 if phase >= 2:
                     tint = pygame.Surface((size, size), pygame.SRCALPHA)
                     tint.fill((180, 0, 0, 80) if phase == 2 else (120, 0, 180, 120))
@@ -625,6 +626,8 @@ def run_game(screen, load_state=None):
                 ray = int(x / SCALE)
                 if 0 < ray < len(depths) and dist < depths[ray]:
                     screen.blit(pygame.transform.scale(spear_img, (size, size)), (x, y))
+
+
 
     def draw_medkits(depths, v_offset=0):
         for med in medkits:
